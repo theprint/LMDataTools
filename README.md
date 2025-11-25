@@ -1,69 +1,5 @@
 # LM Data Tools
 
-Small suite of data-synthesis tools for generating training and evaluation datasets with LLMs. The project exposes a simple FastAPI web UI and several thin CLI scripts that call into a shared `datacore` library.
-Core features
-
-- Web UI: `webapp.py` serves a lightweight web frontend (port `8910` by default) to configure and run jobs.
-- Background jobs: tools run asynchronously and store outputs under `jobs/` with `metadata.json` for each run.
-- Modular tools: small CLI scripts drive the reproducible logic in `datacore/`.
-- Unified LLM client: `datacore/llm/client.py` wraps an OpenAI-compatible SDK and provides `LLMClient` + `call_llm` helpers.
-Tools included (top-level scripts)
-
-- `datapersona.py` — persona-based dataset transformations (uses `datacore/personas`).
-- `databird.py` — topic-driven Q&A generation.
-- `datawriter.py` — long-form document generation for pre-training or content synthesis.
-- `dataqa.py` — scrape+Q&A generation from source URLs.
-- `datamix.py` — combine/weight multiple datasets (Hugging Face sources) into a new dataset.
-Important code areas
-
-- `webapp.py`: FastAPI routing, job orchestration, and upload/download endpoints.
-- `datacore/config/settings.py`: Central configuration (provider, base URLs, API key lookup, output paths).
-- `datacore/llm/client.py`: All LLM integration — changing call signatures here affects all tools.
-- `datacore/personas/*`: Persona prompt templates and local generation helpers used by `datapersona`.
-Quickstart (local)
-
-1. Install dependencies:
-
-```powershell
-pip install -r requirements.txt
-```
-2. Start the web UI:
-
-```powershell
-uvicorn webapp:app --host 0.0.0.0 --port 8910 --reload
-# or: python webapp.py
-```
-3. Open `http://127.0.0.1:8910` in your browser.
-
-Docker
-
-Build and run with docker-compose (binds `./jobs` into the container):
-
-```powershell
-docker-compose up --build
-```
-Configuration and secrets
-
-- Use `datacore/config/settings.py` to inspect defaults and environment variable names. Common env vars: `LLM_PROVIDER`, `LLM_MODEL` (or `LLM_MODEL_NAME`), `LLM_API_KEY_OPENAI`, `LLM_API_KEY_OPENROUTER`, `HUGGING_FACE_API_KEY`.
-- For local development use an `.env` file referenced from `docker-compose.yml` or host environment variables. Do NOT commit secrets — add `.env` to `.gitignore` and provide a `.env.example` with placeholders.
-- For production, prefer Docker secrets or an external secret manager (Vault, cloud provider secrets) and avoid committing secret material.
-Developer notes & conventions
-
-- Keep tool logic in `datacore/` and use top-level scripts as thin wrappers.
-- When modifying LLM behavior, update `datacore/llm/client.py` and verify all tools that call `call_llm` still work.
-- Persona outputs are post-processed (e.g., quote stripping) in `datacore/personas/generator.py`; maintain the example formats there if you change prompts.
-Where outputs land
-
-- Jobs and outputs are stored under `jobs/<timestamp>*/` with a `metadata.json` file describing inputs and config used for the run. Inspect these folders for generated artifacts.
-
-Contributing
-
-Open an issue or PR with small, targeted changes. If you change environment variable names or `LLMClient` signatures, include compatibility notes in the PR description.
-
----
-Created by Rasmus Rasmussen — see project repo for author links.
-# LM Data Tools
-
 This is a collection of data synthesis tools for generating training data for fine-tuning Large Language Models (LLMs). It provides an intuitive interface to run and manage various data generation tasks, from creating persona-based datasets to scraping web content for Q&A pairs.
 
 ## Features
@@ -83,7 +19,10 @@ The suite includes the following tools, each tailored for a specific data genera
 *   **DataBird**: Procedurally generates question-and-answer datasets based on a list of topics.
 *   **DataWriter**: Generates a specified number of long-form documents on various subjects, useful for creating pre-training or document-based datasets.
 *   **DataQA**: Scrapes content from a list of source URLs and generates question-and-answer pairs based on the scraped information.
+*   **DataConvo**: Generates multi-round conversations from a starting data set, useful for training on longer context.
 *   **DataMix**: Combines multiple datasets from Hugging Face into a new dataset, allowing you to specify weights and subsets for each source.
+
+Note: personas can be incorporated into the responses of DataBird, DataQA and DataConvo, but DataPersona will generate 2 responses and choose the best one, when applied to an existing data set.
 
 ## Getting Started
 
@@ -138,6 +77,7 @@ DataToolbox/
 ├── webapp/               # Frontend static files (HTML, CSS, JS)
 ├── datapersona.py        # Script for the DataPersona tool
 ├── databird.py           # Script for the DataBird tool
+├── dataconvo.py          # Script for the DataConvo tool
 ├── datawriter.py         # Script for the DataWriter tool
 ├── dataqa.py             # Script for the DataQA tool
 ├── datamix.py            # Script for the DataMix tool
