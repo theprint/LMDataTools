@@ -98,7 +98,7 @@ if __name__ == "__main__":
         topic_string, tier = get_random_topic(tier_weights=TIER_WEIGHTS)
         
         # Build system prompt with style
-        full_system_prompt = f"{system_prompt} Always respond as that persona, in a {style} style."
+        full_system_prompt = f"{system_prompt} Always respond as that persona, in a {style} style. Incorprate these contextual elements in a natural way, without forced mentions."
         
         # Build user prompt with token length guidance
         token_range_guidance = f"Your response should be between {MIN_TOKENS} and {MAX_TOKENS} tokens in length. "
