@@ -66,7 +66,7 @@ Follow these steps to get the DataSynthesis Suite up and running on your local m
 2.  **Configure LLM Settings**: In the "LLM Settings" section, select your provider (e.g., OpenAI, Local), enter the Base URL, and provide an API key if required. You can fetch available models directly from your endpoint.
 3.  **Set Job Parameters**: Fill in the specific parameters for the selected tool, such as the dataset name, topics, or source URLs.
 4.  **Start the Job**: Click the "Run" button to start the data generation process.
-5.  **Monitor Progress**: You will be redirected to the "Jobs" page, where you can see the real-time status and progress of your job.
+5.  **Monitor Progress**: In the sidebar, you can see the real-time status and progress of your job. As will most loading bars, they are a bit wonky.
 6.  **Download Output**: Once a job is completed, you can download the generated dataset as a `.zip` file directly from the jobs list.
 
 ## Project Structure
