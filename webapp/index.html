@@ -1,0 +1,1940 @@
+<!-- webapp/index.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>LMDataTools</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        a {
+            color: #bbdfd9;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: #151929;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(0, 212, 255, 0.1);
+            overflow: hidden;
+            height: calc(100vh - 40px);
+            display: flex;
+            flex-direction: column;
+        }
+        
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, #1e2742 0%, #151929 100%);
+            color: #00d4ff;
+            padding: 24px 30px;
+            border-bottom: 1px solid rgba(0, 212, 255, 0.2);
+            position: relative;
+        }
+        
+        .header::after {
+            content: '';
+            position: absolute;
+            bottom: -1px;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, #00d4ff, transparent);
+            opacity: 0.5;
+        }
+        
+        .header h1 {
+            font-size: 28px;
+            font-weight: 600;
+            cursor: pointer;
+            letter-spacing: -0.5px;
+            text-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
+        }
+        
+        /* Tool Selector */
+        .tool-selector {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            padding: 20px 30px;
+            background: #1a1f3a;
+            border-bottom: 1px solid rgba(0, 212, 255, 0.1);
+            flex-wrap: wrap;
+        }
+
+        .tool-buttons {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .tool-separator {
+            height: 30px;
+            width: 1px;
+            background: rgba(0, 212, 255, 0.2);
+        }
+        
+        .tool-btn {
+            min-width: 120px;
+            padding: 15px 25px;
+            background: #1e2742;
+            border: 2px solid rgba(0, 212, 255, 0.2);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            text-align: center;
+            font-weight: 600;
+            font-size: 15px;
+            color: #c4cdd5;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .tool-btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(0, 212, 255, 0.1), transparent);
+            transition: left 0.5s;
+        }
+        
+        .tool-btn:hover::before {
+            left: 100%;
+        }
+        
+        .tool-btn:hover {
+            border-color: #00d4ff;
+            background: #252d47;
+            color: #00d4ff;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px rgba(0, 212, 255, 0.2), 0 0 20px rgba(0, 212, 255, 0.1);
+        }
+        
+        .tool-btn.active {
+            background: linear-gradient(135deg, #00d4ff 0%, #0099cc 100%);
+            border-color: #00d4ff;
+            color: #0a0e27;
+            box-shadow: 0 8px 20px rgba(0, 212, 255, 0.4), 0 0 30px rgba(0, 212, 255, 0.2);
+            font-weight: 700;
+        }
+        
+        /* Main Content Area */
+        .main-content {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+        
+        /* Config Section */
+        .config-section {
+            flex: 1.5;
+            padding: 30px;
+            overflow-y: auto;
+            border-right: 1px solid rgba(0, 212, 255, 0.1);
+            background: #151929;
+        }
+        
+        .config-section h2 {
+            font-size: 20px;
+            margin-bottom: 20px;
+            color: #00d4ff;
+            font-weight: 600;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #5a6273;
+        }
+        
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+        
+        /* Overview Page Styling */
+        .overview-container {
+            padding: 10px;
+        }
+
+        .overview-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .overview-header h2 {
+            font-size: 24px;
+            color: #e4e7eb;
+            margin-bottom: 8px;
+        }
+
+        .overview-header p {
+            font-size: 16px;
+            color: #8a93a2;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .tool-card-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+        }
+
+        .tool-card {
+            background: #1e2742;
+            border: 1px solid rgba(0, 212, 255, 0.15);
+            border-radius: 10px;
+            padding: 20px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .tool-card:hover {
+            transform: translateY(-5px);
+            background: #252d47;
+            border-color: rgba(0, 212, 255, 0.4);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+        }
+
+        .tool-card h3 {
+            color: #00d4ff;
+            font-size: 18px;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+
+        .tool-card p {
+            color: #c4cdd5;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        
+        /* Slider styling */
+        .slider-group {
+            margin-top: 10px;
+        }
+        .slider-group input[type="range"] {
+            width: 100%;
+            cursor: pointer;
+            accent-color: #00d4ff;
+        }
+        .slider-group .slider-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: #8a93a2;
+        }
+
+        /* Custom noUiSlider Styling */
+        .noUi-target {
+            background: #1a1f3a;
+            border-radius: 6px;
+            border: 1px solid rgba(0, 212, 255, 0.15);
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.4);
+            height: 6px;
+            margin: 15px 0 25px 0; /* Added bottom margin for handles */
+        }
+
+        .noUi-connects {
+            border-radius: 6px;
+        }
+
+        .noUi-connect {
+            background: linear-gradient(90deg, #00d4ff 0%, #00b8e6 100%);
+            box-shadow: 0 0 8px rgba(0, 212, 255, 0.4);
+        }
+
+        .noUi-handle {
+            border: 3px solid #00d4ff;
+            border-radius: 50%;
+            background: #1e2742;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4), 0 0 12px rgba(0, 212, 255, 0.3);
+            cursor: grab;
+            width: 22px;
+            height: 22px;
+            right: -11px;
+            top: -8px;
+            transition: transform 0.1s, box-shadow 0.2s;
+        }
+
+        .noUi-handle:active {
+            cursor: grabbing;
+            transform: scale(1.1);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5), 0 0 20px rgba(0, 212, 255, 0.5);
+        }
+
+        .noUi-handle:focus {
+            outline: none;
+            border-color: #00ffcc;
+        }
+
+        /* Remove the default grip lines */
+        .noUi-handle::before,
+        .noUi-handle::after {
+            display: none;
+        }
+
+        /* Fix for tooltips if you add them later */
+        .noUi-tooltip {
+            display: none;
+        }
+
+        /* Horizontal slider specific */
+        .noUi-horizontal {
+            height: 6px;
+        }
+
+        .noUi-horizontal .noUi-handle {
+            width: 22px;
+            height: 22px;
+            right: -11px;
+            top: -8px;
+        }
+
+
+
+        /* Form Styling */
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #c4cdd5;
+            font-size: 14px;
+        }
+        
+        .form-group input[type="text"],
+        .form-group input[type="password"],
+        .form-group input[type="number"],
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 10px 12px;
+            border: 2px solid rgba(0, 212, 255, 0.2);
+            border-radius: 6px;
+            font-size: 14px;
+            transition: all 0.2s;
+            font-family: inherit;
+            background: #1e2742;
+            color: #e4e7eb;
+        }
+        
+        .form-group input::placeholder,
+        .form-group textarea::placeholder {
+            color: #5a6273;
+        }
+        
+        .form-group input[type="file"] {
+            background: #1e2742;
+            border: 2px solid rgba(0, 212, 255, 0.2);
+            border-radius: 6px;
+            padding: 8px;
+            color: #e4e7eb;
+            cursor: pointer;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #00d4ff;
+            background: #252d47;
+            box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.1);
+        }
+        
+        .form-group textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+        
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .checkbox-group input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            accent-color: #00d4ff;
+        }
+        
+        .checkbox-group label {
+            margin: 0;
+            cursor: pointer;
+            color: #c4cdd5;
+        }
+        
+        /* Buttons */
+        .btn-primary {
+            background: linear-gradient(135deg, #ff8c00 0%, #ff6347 100%);
+            color: #fff;
+            border: none;
+            padding: 12px 32px;
+            border-radius: 6px;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            margin-top: 10px;
+            box-shadow: 0 4px 12px rgba(255, 107, 71, 0.4);
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(255, 107, 71, 0.6), 0 0 30px rgba(255, 107, 71, 0.4);
+        }
+        
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .btn-primary:disabled {
+            background: #5a6273;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .btn-secondary {
+            background: #252d47;
+            color: #c4cdd5;
+            border: 2px solid rgba(0, 212, 255, 0.2);
+        }
+
+        .btn-secondary:hover {
+            border-color: #00d4ff;
+            color: #00d4ff;
+        }
+        
+        /* Progress/Log Section */
+        .progress-section {
+            flex: 1;
+            min-width: 350px;
+            background: #1a1f3a;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .progress-header {
+            padding: 20px 24px;
+            background: #1e2742;
+            border-bottom: 1px solid rgba(0, 212, 255, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center; /* Vertically align items */
+        }
+        
+        .progress-header h2 {
+            font-size: 18px;
+            color: #00d4ff;
+            font-weight: 600;
+        }
+        
+        .progress-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px 24px;
+        }
+        
+        /* Job Items */
+        .job-item {
+            background: #1e2742;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 12px;
+            border-left: 4px solid #00d4ff;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            transition: all 0.2s;
+        }
+        
+        .job-item:hover {
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+            transform: translateX(2px);
+        }
+        
+        .job-item.status-completed {
+            border-left-color: #00ff88;
+        }
+        
+        .job-item.status-failed {
+            border-left-color: #ff4757;
+        }
+        
+        .job-item.status-running {
+            border-left-color: #ffd93d;
+        }
+        
+        .job-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        
+        .job-title {
+            font-weight: 600;
+            color: #e4e7eb;
+            font-size: 14px;
+        }
+        
+        .job-status {
+            font-size: 12px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+        
+        .job-status.running {
+            background: rgba(255, 217, 61, 0.2);
+            color: #ffd93d;
+            border: 1px solid rgba(255, 217, 61, 0.3);
+        }
+        
+        .job-status.completed {
+            background: rgba(0, 255, 136, 0.2);
+            color: #00ff88;
+            border: 1px solid rgba(0, 255, 136, 0.3);
+        }
+        
+        .job-status.failed {
+            background: rgba(255, 71, 87, 0.2);
+            color: #ff4757;
+            border: 1px solid rgba(255, 71, 87, 0.3);
+        }
+        
+        .job-id {
+            font-size: 11px;
+            color: #5a6273;
+            margin-bottom: 8px;
+            font-family: 'Courier New', monospace;
+        }
+        
+        /* Progress Bar */
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #0a0e27;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 8px 0;
+            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5);
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #00d4ff 0%, #00ff88 100%);
+            transition: width 0.3s;
+            border-radius: 4px;
+            box-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
+        }
+        
+        .progress-text {
+            font-size: 12px;
+            color: #8a93a2;
+            margin-top: 4px;
+        }
+        
+        /* Job Actions */
+        .job-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .job-actions-buttons {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .btn-small {
+            padding: 6px 12px;
+            font-size: 12px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        
+        .btn-download {
+            background: #00ff88;
+            color: #0a0e27;
+        }
+        
+        .btn-download:hover {
+            background: #00cc6f;
+            box-shadow: 0 4px 12px rgba(0, 255, 136, 0.3);
+        }
+        
+        .btn-delete {
+            background: #ff4757;
+            color: white;
+        }
+        
+        .btn-delete:hover {
+            background: #ee2e3f;
+            box-shadow: 0 4px 12px rgba(255, 71, 87, 0.3);
+        }
+        
+        /* Error Message */
+        .error-message {
+            background: rgba(255, 71, 87, 0.2);
+            color: #ff4757;
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            border: 1px solid rgba(255, 71, 87, 0.3);
+            flex-grow: 1;
+        }
+        
+        /* Empty Jobs State */
+        .empty-jobs {
+            text-align: center;
+            padding: 40px 20px;
+            color: #5a6273;
+        }
+        
+        /* Scrollbar Styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: #0a0e27;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: #2a3447;
+            border-radius: 4px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: #3a4557;
+        }
+
+        /* Settings Popover */
+        .popover-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(5px);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .popover-content {
+            background: #1e2742;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            border: 1px solid rgba(0, 212, 255, 0.2);
+            width: 90%;
+            max-width: 500px;
+        }
+
+        .popover-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .popover-header h2 {
+            color: #00d4ff;
+            font-size: 20px;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            color: #c4cdd5;
+            font-size: 24px;
+            cursor: pointer;
+        }
+        
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .container {
+                height: auto;
+                min-height: calc(100vh - 40px);
+            }
+
+            .main-content {
+                flex-direction: column;
+            }
+            
+            .config-section {
+                border-right: none;
+                border-bottom: 1px solid rgba(0, 212, 255, 0.1);
+            }
+            
+            .progress-section {
+                min-width: 100%;
+            }
+        }
+        
+        /* Additional text styling for better readability */
+        p {
+            color: #8a93a2;
+            line-height: 1.6;
+        }
+        
+        strong {
+            color: #c4cdd5;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header" id="app-header">
+            <h1>LMDataTools</h1>
+            <p>Synthetic data generation tools developed by <a href="https://huggingface.co/theprint" target="_blank">Rasmus Rasmussen</a>.
+                <br>Uses the openai SDK and supports any LLM provider or local AI server that can work with this library. <strong>LMDataTools</strong> is released under the <a href="https://www.apache.org/licenses/LICENSE-2.0" target="_blank">Apache 2.0 license</a>.</p>
+        </div>
+        
+        <!-- Tool Selector -->
+        <div class="tool-selector">
+            <div class="tool-buttons">
+                <button class="tool-btn" data-tool="databird" title="Procedural Q&A generation">DataBird</button>
+                <button class="tool-btn" data-tool="datapersona" title="Rewrite with personas">DataPersona</button>
+                <button class="tool-btn" data-tool="dataqa" title="Web scraping to Q&A">DataQA</button>
+                <button class="tool-btn" data-tool="datawriter" title="Generate documents">DataWriter</button>
+                <button class="tool-btn" data-tool="dataconvo" title="Expand conversations">DataConvo</button>
+                <div class="tool-separator"></div>
+                <button class="tool-btn" data-tool="datamix" title="Mix HuggingFace datasets">DataMix</button>
+                <button class="tool-btn" data-tool="reformat" title="Reformat datasets">Reformat</button>
+            </div>
+            <div class="right-aligned-buttons" style="display: flex; align-items: center; gap: 12px;">
+                <!-- "Start Job" button -->
+                <button class="btn-primary" id="start-job-btn" style="display: none; padding: 15px 32px; border: 2px solid transparent; margin-top: 0;" disabled>Start Job</button>
+                <button class="tool-btn btn-secondary" id="settings-btn">Settings</button>
+            </div>
+        </div>
+        
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Config Section -->
+            <div class="config-section">
+                <div id="config-content"></div>
+            </div>
+            
+            <!-- Progress/Log Section -->
+            <div class="progress-section">
+                <div class="progress-header">
+                    <h2>Progress & History</h2>
+                    <button class="btn-small btn-delete" id="clear-failed-jobs-btn" style="margin-left: auto;">Clear Failed</button>
+                </div>
+                <div class="progress-content" id="jobs-list">
+                    <div class="empty-jobs">No jobs yet</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Popover -->
+    <div class="popover-overlay" id="settings-popover">
+        <div class="popover-content">
+            <div class="popover-header">
+                <h2>Settings</h2>
+                <button class="close-btn" id="close-popover-btn">✖</button>
+            </div>
+            <div class="form-group">
+                <label for="llm_provider">LLM Provider</label>
+                <select id="llm_provider">
+                    <option value="openai">OpenAI</option>
+                    <option value="openrouter">OpenRouter</option>
+                    <option value="gemini">Google Gemini</option>
+                    <option value="other">Ollama / Local</option>
+                </select>
+            </div>
+            <div class="form-group" id="base-url-group">
+                <label for="base_url">Base URL</label>
+                <input type="text" id="base_url" placeholder="http://localhost:1234/v1">
+            </div>
+            <div class="form-group">
+                <label for="api_key">API Key</label>
+                <input type="password" id="api_key" placeholder="Enter your API key">
+            </div>
+                            <div class="form-group" id="llm-model-group">
+                                <label for="llm_model">Model Name</label>
+                                <!-- Replaced input with select -->
+                                <select id="llm_model" class="model-select">
+                                    <option value="">Loading models...</option>
+                                </select>
+                                <!-- Fallback input, initially hidden -->
+                                <input type="text" id="llm_model_text" class="model-text-input" placeholder="gpt-4, gemini-pro, etc." style="display: none;">
+                            </div>
+                            <!-- Error message display -->
+                            <div id="model-loading-error" style="display: none; color: #ff4757; font-size: 13px; margin-top: 10px; padding: 10px; border: 1px solid rgba(255, 71, 87, 0.3); border-radius: 4px; background: rgba(255, 71, 87, 0.1);">
+                            </div>
+                            <!-- End of error message display -->
+                            <div class="form-group">
+                                <label for="hugging_face_api_key">Hugging Face API Key</label>
+                                <input type="password" id="hugging_face_api_key" placeholder="Enter your Hugging Face API key">
+                            </div>
+                            <button class="btn-primary" id="save-settings-btn">Save</button>
+                        </div>
+                    </div>
+                <script src="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.js"></script>
+                <script>
+                    let currentTool = null;
+                    let activeWebSocket = null;
+            
+                    const startJobBtn = document.getElementById('start-job-btn');
+                    // Settings Popover Logic
+                    const settingsBtn = document.getElementById('settings-btn');
+                    const settingsPopover = document.getElementById('settings-popover');
+                    const closePopoverBtn = document.getElementById('close-popover-btn');
+                    const saveSettingsBtn = document.getElementById('save-settings-btn');
+                    const llmProviderSelect = document.getElementById('llm_provider');
+                    const baseUrlInput = document.getElementById('base_url'); // Get base_url input
+                    const apiKeyInput = document.getElementById('api_key'); // Get api_key input
+                    const llmModelSelect = document.getElementById('llm_model');
+                    const llmModelTextInput = document.getElementById('llm_model_text');
+                    const llmModelGroup = document.getElementById('llm-model-group');
+                    const huggingFaceApiKeyInput = document.getElementById('hugging_face_api_key'); // Get hugging_face_api_key input
+
+                    if (startJobBtn) {
+                        startJobBtn.style.display = 'none'; // Hide by default
+                        startJobBtn.addEventListener('click', startJob);
+                    }
+            
+                    // Store all settings, including API keys per provider
+                    let allSettings = JSON.parse(localStorage.getItem('allSettings')) || {
+                        providers: {
+                            openai: { base_url: 'https://api.openai.com/v1', api_key: '', llm_model: '' },
+                            gemini: { base_url: 'https://generativelanguage.googleapis.com/v1beta/openai/', api_key: '', llm_model: '' },
+                            openrouter: { base_url: 'https://openrouter.ai/api/v1', api_key: '', llm_model: '' },
+                            other: { base_url: 'http://host.docker.internal:11434', api_key: '', llm_model: '' }
+                        },
+                        currentProvider: 'openai'
+                    };
+            
+                    function loadSettings() {
+                        const currentProviderId = allSettings.currentProvider;
+                        const providerSettings = allSettings.providers[currentProviderId];
+            
+                        llmProviderSelect.value = currentProviderId;
+                        baseUrlInput.value = providerSettings.base_url;
+                        apiKeyInput.value = providerSettings.api_key;
+                        llmModelSelect.value = providerSettings.llm_model;
+                        llmModelTextInput.value = providerSettings.llm_model;
+                        huggingFaceApiKeyInput.value = allSettings.hugging_face_api_key || ''; // Hugging Face API key is global
+                        
+                        updateBaseUrlAndApiKeyFields(); // Update fields based on current provider
+                        updateModelDropdown(); // Populate model dropdown
+                    }
+            
+                    function saveSettings() {
+                        const currentProviderId = llmProviderSelect.value;
+                        allSettings.currentProvider = currentProviderId;
+            
+                        // Save current provider's settings
+                        allSettings.providers[currentProviderId] = {
+                            base_url: baseUrlInput.value,
+                            api_key: apiKeyInput.value,
+                            llm_model: llmModelSelect.style.display !== 'none' ? llmModelSelect.value : llmModelTextInput.value
+                        };
+                        // Save global Hugging Face API key
+                        allSettings.hugging_face_api_key = huggingFaceApiKeyInput.value;
+            
+                        localStorage.setItem('allSettings', JSON.stringify(allSettings));
+                        alert('Settings saved!');
+                        settingsPopover.style.display = 'none';
+                    }
+            
+                    function updateBaseUrlAndApiKeyFields() {
+                        const currentProviderId = llmProviderSelect.value;
+                        const providerSettings = allSettings.providers[currentProviderId];
+            
+                        // Update base_url and api_key fields
+                        baseUrlInput.value = providerSettings.base_url;
+                        apiKeyInput.value = providerSettings.api_key;
+                        llmModelSelect.value = providerSettings.llm_model;
+                        llmModelTextInput.value = providerSettings.llm_model;
+            
+                        // Show/hide base_url group based on provider
+                        if (currentProviderId === 'openai' || currentProviderId === 'gemini' || currentProviderId === 'openrouter') {
+                            baseUrlInput.setAttribute('readonly', true);
+                            baseUrlInput.style.backgroundColor = '#1a1f3a';
+                        } else {
+                            baseUrlInput.removeAttribute('readonly');
+                            baseUrlInput.style.backgroundColor = '#1e2742';
+                        }
+                    }
+            
+                    llmProviderSelect.addEventListener('change', () => {
+                        updateBaseUrlAndApiKeyFields();
+                        updateModelDropdown(); // Update model dropdown when provider changes
+                    });
+            
+                    baseUrlInput.addEventListener('change', updateModelDropdown); // Update model dropdown when base URL changes
+            
+                    settingsBtn.addEventListener('click', () => {
+                        loadSettings(); // Load settings when opening the popover
+                        settingsPopover.style.display = 'flex';
+                    });
+            
+                    closePopoverBtn.addEventListener('click', () => {
+                        settingsPopover.style.display = 'none';
+                    });
+            
+                    saveSettingsBtn.addEventListener('click', saveSettings);
+            
+                    window.addEventListener('click', (event) => {
+                        if (event.target === settingsPopover) {
+                            settingsPopover.style.display = 'none';
+                        }
+                    });
+            
+                                async function fetchModels(baseUrl, apiKey) {
+                                    try {
+                                        const provider = llmProviderSelect.value;
+                                        const url = `/api/llm/models?provider=${encodeURIComponent(provider)}&base_url=${encodeURIComponent(baseUrl)}&api_key=${encodeURIComponent(apiKey || '')}`;
+                                        const response = await fetch(url);
+                                        if (!response.ok) { 
+                                            const errorData = await response.json();
+                                            // Use the detailed error from the backend if available
+                                            throw new Error(errorData.detail || `HTTP error! Status: ${response.status}`);
+                                        } 
+                                        const data = await response.json();
+                                        return data.models;
+                                    } catch (error) {
+                                        console.error('Error fetching models:', error);
+                                        // Return the error message to be displayed
+                                        return { error: error.message };
+                                    }
+                                }            
+                    async function updateModelDropdown() {
+                        const currentProviderId = llmProviderSelect.value;
+                        const providerSettings = allSettings.providers[currentProviderId];
+                        const baseUrl = providerSettings.base_url;
+                        const apiKey = providerSettings.api_key;
+            
+                        const modelErrorDiv = document.getElementById('model-loading-error');
+                        modelErrorDiv.style.display = 'none'; // Hide error initially
+
+                        llmModelSelect.innerHTML = '<option value="">Loading models...</option>';
+                        llmModelSelect.style.display = 'block';
+                        llmModelTextInput.style.display = 'none';
+            
+                        const result = await fetchModels(baseUrl, apiKey);
+            
+                        if (result && !result.error && result.length > 0) {
+                            const models = result;
+                            llmModelSelect.innerHTML = '';
+                            models.forEach(model => {
+                                const option = document.createElement('option');
+                                option.value = model;
+                                option.textContent = model;
+                                llmModelSelect.appendChild(option);
+                            });
+                            // Set selected model if previously saved
+                            if (providerSettings.llm_model) {
+                                llmModelSelect.value = providerSettings.llm_model;
+                            }
+                        } else {
+                            // If there was an error, display it
+                            if (result && result.error) {
+                                modelErrorDiv.textContent = `Could not load models. Reason: ${result.error}`;
+                                modelErrorDiv.style.display = 'block';
+                            }
+                            // Fallback to text input
+                            llmModelSelect.style.display = 'none';
+                            llmModelTextInput.style.display = 'block';
+                            llmModelTextInput.value = providerSettings.llm_model || '';
+                        }
+                    }        
+        // Tool button click handlers
+        document.querySelectorAll('.tool-btn:not(#settings-btn)').forEach(btn => {
+            btn.addEventListener('click', (event) => {
+                // Update active state
+                document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                
+                startJobBtn.style.display = 'inline-block';
+
+                // Get tool info
+                const toolId = btn.dataset.tool;
+                const toolName = btn.textContent;
+                
+                currentTool = {
+                    id: toolId,
+                    name: toolName
+                };
+                
+                // Show config for selected tool
+                showToolConfig(currentTool);
+                validateForm();
+            });
+        });
+
+        // Function to show the overview page
+        async function showOverviewPage() {
+            const configContent = document.getElementById('config-content');
+            configContent.className = 'overview-container'; // Use a specific class for styling
+            configContent.innerHTML = `
+                <div class="tool-card-grid">
+                    <div class="tool-card" data-tool="databird">
+                        <h3>DataBird</h3>
+                        <p>Generates procedural Q&A datasets from topics, using auto-generated or custom perspectives to create diverse conversational data.</p>
+                    </div>
+                    <div class="tool-card" data-tool="datapersona">
+                        <h3>DataPersona</h3>
+                        <p>Rewrites existing QA/Alpaca data sets from a unique perspective by infusing them with a selected persona.</p>
+                    </div>
+                    <div class="tool-card" data-tool="dataqa">
+                        <h3>DataQA</h3>
+                        <p>RAG-based tool that scrapes web content and transforms it into rated Q&A pairs.</p>
+                    </div>
+                    <div class="tool-card" data-tool="datawriter">
+                        <h3>DataWriter</h3>
+                        <p>Generates a mix of documents from a weighted list of topics, allowing control over document count and generation temperature.</p>
+                    </div>
+                    <div class="tool-card" data-tool="dataconvo">
+                        <h3>DataConvo</h3>
+                        <p>Expands single-turn conversations into multi-turn dialogues, with adjustable conversation lengths.</p>
+                    </div>
+                    <div class="tool-card" data-tool="datamix">
+                        <h3>DataMix</h3>
+                        <p>Mixes and samples from multiple Hugging Face datasets to create new, customized datasets based on specified criteria.</p>
+                    </div>
+                    <div class="tool-card" data-tool="reformat">
+                        <h3>Reformat</h3>
+                        <p>Converts a JSON dataset to a different standard format like Alpaca, ShareGPT, or simple Q&A pairs.</p>
+                    </div>
+                </div>
+            `;
+
+            // Add click listeners to the cards
+            configContent.querySelectorAll('.tool-card').forEach(card => {
+                card.addEventListener('click', () => {
+                    const toolId = card.dataset.tool;
+                    // Find the corresponding button and click it
+                    const toolButton = document.querySelector(`.tool-btn[data-tool="${toolId}"]`);
+                    if (toolButton) {
+                        toolButton.click();
+                    }
+                });
+            });
+
+            currentTool = null;
+            startJobBtn.style.display = 'none';
+            document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+        }
+
+        // Make app title clickable to return to overview
+        document.getElementById('app-header').querySelector('h1').addEventListener('click', showOverviewPage);
+        
+        // Show configuration for selected tool
+        async function showToolConfig(tool) {
+            const configContent = document.getElementById('config-content');
+            configContent.className = ''; // Remove empty-state class
+            
+            // Detach existing event listeners to avoid multiple triggers
+            const newConfigContent = configContent.cloneNode(false);
+            configContent.parentNode.replaceChild(newConfigContent, configContent);
+
+            let formHTML = `<h2>Configure ${tool.name}</h2>`;
+            
+            // Common persona selector for relevant tools
+            switch(tool.id) {
+                case 'datapersona':
+                    formHTML += `<div id="datapersona-form-content">Loading configuration...</div>`;
+                    newConfigContent.innerHTML = formHTML;
+                    buildDataPersonaForm();
+                    break;
+                
+                case 'databird':
+                    formHTML += `
+                        <div class="form-group">
+                            <label>Dataset Name</label>
+                            <input type="text" id="dataset_name" value="my-dataset">
+                        </div>
+                        <div class="form-group">
+                            <label>Topics (one per line)</label>
+                            <textarea id="topics" rows="5" placeholder="sourdough starters&#10;baking at home&#10;ingredient ratios"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <div class="checkbox-group">
+                                <input type="checkbox" id="full_auto" checked>
+                                <label>Auto-generate perspectives</label>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Dataset Size</label>
+                            <select id="dataset_size">
+                                <option value="small">Small</option>
+                                <option value="medium">Medium</option>
+                                <option value="large">Large</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Clean Score Threshold</label>
+                            <input type="number" step="0.01" id="clean_score" value="0.76">
+                        </div>
+                    `;
+                    formHTML += await buildPersonaSelector();
+                    newConfigContent.innerHTML = formHTML;
+                    break;
+                
+                case 'datawriter':
+                // Default values matching the backend
+                const defaultMin = 200;
+                const defaultMax = 10000;
+                const defaultTemp = 0.8;
+
+                formHTML += `
+                    <div class="form-group">
+                        <label>Dataset Name</label>
+                        <input type="text" id="dataset_name" value="my-writer-dataset">
+                    </div>
+                    <div class="form-group">
+                        <label for="document_count">Document Count</label>
+                        <input type="number" id="document_count" value="500">
+                    </div>
+                    <div class="form-group">
+                        <label for="post-length-slider">Post Length: <span id="post-length-value">${defaultMin} - ${defaultMax}</span> tokens</label>
+                        <div id="post-length-slider" style="margin-top: 10px;"></div>
+                        <input type="hidden" id="min_tokens" value="${defaultMin}">
+                        <input type="hidden" id="max_tokens" value="${defaultMax}">
+                    </div>
+                    <div class="form-group">
+                        <label for="temperature">Temperature: <span id="temperature-value">${defaultTemp}</span></label>
+                        <div class="slider-group">
+                            <input type="range" id="temperature" min="0" max="1" step="0.01" value="${defaultTemp}" oninput="document.getElementById('temperature-value').textContent = this.value">
+                            <div class="slider-labels">
+                                <span>Deterministic</span>
+                                <span>Creative</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="add_summary">
+                            <label for="add_summary">Add Summary</label>
+                        </div>
+                        <p style="color: #8a93a2; font-size: 12px; margin-top: 5px;">If checked, a summary will be generated for each document.</p>
+                    </div>
+                `;
+                newConfigContent.innerHTML = formHTML;
+
+                // Initialize noUiSlider for post length
+                const postLengthSlider = document.getElementById('post-length-slider');
+                const minTokensInput = document.getElementById('min_tokens');
+                const maxTokensInput = document.getElementById('max_tokens');
+                const postLengthValue = document.getElementById('post-length-value');
+
+                noUiSlider.create(postLengthSlider, {
+                    start: [defaultMin, defaultMax],
+                    connect: true,
+                    step: 100,
+                    range: {
+                        'min': 100,
+                        'max': 20000
+                    },
+                    behaviour: 'drag',
+                    format: {
+                        to: function (value) {
+                            return Math.round(value);
+                        },
+                        from: function (value) {
+                            return Math.round(value);
+                        }
+                    }
+                });
+
+                // Use 'update' only for display updates (no validation)
+                postLengthSlider.noUiSlider.on('update', function (values, handle) {
+                    const [min, max] = values;
+                    minTokensInput.value = min;
+                    maxTokensInput.value = max;
+                    postLengthValue.textContent = `${min} - ${max}`;
+                });
+
+                // Use 'change' for validation (only fires when user releases handle)
+                postLengthSlider.noUiSlider.on('change', function (values, handle) {
+                    validateForm();
+                });
+                
+                // Initial validation
+                validateForm();
+                break;
+                
+                case 'dataqa':
+                    formHTML += `
+                        <div class="form-group">
+                            <label>Dataset Name</label>
+                            <input type="text" id="dataset_name" value="my-qa-dataset">
+                        </div>
+                        <div class="form-group">
+                            <label>Source URLs (one per line)</label>
+                            <textarea id="source_urls" rows="5" placeholder="https://example.com/page1\nhttps://example.com/page2"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <div class="checkbox-group">
+                                <input type="checkbox" id="auto_perspectives" checked onchange="toggleDataQAPerspectives()">
+                                <label>Auto-generate perspectives</label>
+                            </div>
+                        </div>
+                        <div class="form-group" id="manual_perspectives_group" style="display: none;">
+                            <label>Manual Perspectives (one per line)</label>
+                            <textarea id="manual_perspectives" rows="4" placeholder='("a student", "learning the basics for an exam")\n("an expert", "looking for advanced insights")'></textarea>
+                            <p style="color: #8a93a2; font-size: 12px; margin-top: 5px;">Format: ("who", "what they are doing")</p>
+                        </div>
+                        <div class="form-group">
+                            <label>Confidence Threshold</label>
+                            <input type="number" step="0.01" id="confidence_threshold" value="0.68">
+                        </div>
+                    `;
+                    formHTML += await buildPersonaSelector();
+                    newConfigContent.innerHTML = formHTML;
+                    // Add the toggle function to the window scope
+                    window.toggleDataQAPerspectives = () => {
+                        const autoPerspectivesCheckbox = document.getElementById('auto_perspectives');
+                        const manualPerspectivesGroup = document.getElementById('manual_perspectives_group');
+                        if (autoPerspectivesCheckbox.checked) {
+                            manualPerspectivesGroup.style.display = 'none';
+                        } else {
+                            manualPerspectivesGroup.style.display = 'block';
+                        }
+                    };
+                    break;
+                
+                case 'datamix':
+                    formHTML += `
+                        <div class="form-group">
+                            <label>Dataset Name</label>
+                            <input type="text" id="dataset_name" value="mixed-dataset">
+                        </div>
+                        <div class="form-group">
+                            <label>Total Samples</label>
+                            <input type="number" id="total_samples" value="10000">
+                        </div>
+                        <p style="color: #666; font-size: 14px; margin-top: 16px;">
+                            <strong>Note:</strong> Dataset sources must be configured in the datamix.py file
+                        </p>
+                    `;
+                    newConfigContent.innerHTML = formHTML;
+                    break;
+                
+                case 'dataconvo':
+                    formHTML += `
+                        <div class="form-group">
+                            <label>Dataset Name</label>
+                            <input type="text" id="dataset_name" value="my-convo-dataset">
+                        </div>
+                        <div class="form-group">
+                            <label>Source File (.json or .jsonl)</label>
+                            <input type="file" id="file" accept=".json,.jsonl">
+                        </div>
+                        <div class="form-group">
+                            <label>Conversation Length Distribution</label>
+                            <p style="font-size: 13px; color: #8a93a2; margin-bottom: 10px;">Adjust the balance of generated conversation lengths.</p>
+                            <div class="slider-group">
+                                <input type="range" id="round_weights_slider" min="0" max="100" value="50">
+                                <div class="slider-labels">
+                                    <span>Shorter (1-2 rounds)</span>
+                                    <span>Balanced Mix</span>
+                                    <span>Longer (2-3 rounds)</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Save Interval</label>
+                            <input type="number" id="save_interval" value="100">
+                        </div>
+                    `;
+                    formHTML += await buildPersonaSelector();
+                    newConfigContent.innerHTML = formHTML;
+                    // Add event listener for the slider to update a hidden input or a variable
+                    const slider = document.getElementById('round_weights_slider');
+                    slider.addEventListener('input', () => {
+                        // The value will be read directly when getConfig() is called.
+                        // No need for a hidden input.
+                    });
+                    break;
+
+                case 'reformat':
+                    formHTML += `
+                        <div class="form-group">
+                            <label>Dataset Name</label>
+                            <input type="text" id="dataset_name" value="reformatted-dataset">
+                        </div>
+                        <div class="form-group">
+                            <label>Source File (.json or .jsonl)</label>
+                            <input type="file" id="file" accept=".json,.jsonl">
+                        </div>
+                        <div class="form-group">
+                            <label>Target Format</label>
+                            <select id="target_format">
+                                <option value="alpaca">Alpaca</option>
+                                <option value="sharegpt">ShareGPT</option>
+                                <option value="qa">Q&A (question/answer)</option>
+                            </select>
+                        </div>
+                    `;
+                    newConfigContent.innerHTML = formHTML;
+                    break;
+            }
+
+            // Add event listeners for validation
+            newConfigContent.querySelectorAll('input, textarea, select').forEach(input => {
+                input.addEventListener('input', validateForm);
+                input.addEventListener('change', validateForm);
+            });
+            // Also attach to persona selector if it exists
+            const personaSelector = newConfigContent.querySelector('#use_persona');
+            if (personaSelector) {
+                personaSelector.addEventListener('change', validateForm);
+            }
+            const postLengthSlider = newConfigContent.querySelector('#post-length-slider');
+            if (postLengthSlider && postLengthSlider.noUiSlider) {
+                postLengthSlider.noUiSlider.on('change', validateForm);
+            }
+        }
+        
+        // Build DataPersona form dynamically
+        async function buildDataPersonaForm() {
+            try {
+                const [defaultsRes, personasRes] = await Promise.all([
+                    fetch('/api/defaults/datapersona'),
+                    fetch('/api/personas')
+                ]);
+
+                if (!defaultsRes.ok || !personasRes.ok) throw new Error('Failed to fetch form data');
+
+                const defaults = await defaultsRes.json();
+                const personasData = await personasRes.json();
+                
+                const personaOptions = personasData.personas.map(p =>
+                    `<option value="${p}" ${p === defaults.PERSONA ? 'selected' : ''}>${p}</option>`
+                ).join('');
+
+                const defaultPersonaDescription = 'Loading description...';
+
+                const formContent = ` 
+                    <div class="form-group">
+                        <label>Dataset Name</label>
+                        <input type="text" id="dataset_name" value="${defaults.DATASET_NAME || 'my-persona-dataset'}">
+                    </div>
+                    <div class="form-group">
+                        <label>Persona</label>
+                        <div id="persona-description" style="color: #8a93a2; font-size: 13px; margin-bottom: 10px; padding: 10px; border: 1px solid rgba(0, 212, 255, 0.1); border-radius: 4px; background: #1a1f3a;">
+                            ${defaultPersonaDescription}
+                        </div>
+                        <select id="persona">${personaOptions}</select>
+                    </div>
+                    <div class="form-group">
+                        <label>Source Files (.json)</label>
+                        <input type="file" id="files" multiple accept=".json">
+                    </div>
+                    <div class="form-group">
+                        <label>Number of Replies</label>
+                        <div class="checkbox-group" style="gap: 20px;">
+                            <div class="checkbox-group">
+                                <input type="radio" id="num_replies_1" name="num_replies" value="1" checked>
+                                <label for="num_replies_1">1</label>
+                            </div>
+                            <div class="checkbox-group">
+                                <input type="radio" id="num_replies_2" name="num_replies" value="2">
+                                <label for="num_replies_2">2</label>
+                            </div>
+                        </div>
+                    </div>                    
+                    <div class="form-group">
+                        <label>Save Interval</label>
+                        <input type="number" id="save_interval" value="${defaults.SAVE_INTERVAL}">
+                    </div>
+                    <div class="form-group">
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="export_alpaca" ${defaults.EXPORT_ALPACA ? 'checked' : ''}>
+                            <label>Export Alpaca format (from best replies)</label>
+                        </div>
+                    </div>
+                `;
+                const formContainer = document.getElementById('datapersona-form-content');
+                formContainer.innerHTML = formContent;
+
+                // Add event listener to update description on change
+                const personaSelect = formContainer.querySelector('#persona');
+                const descriptionDiv = formContainer.querySelector('#persona-description');
+                async function updateDataPersonaDescription() {
+                    const selectedPersona = personaSelect.value;
+                    if (!selectedPersona) {
+                        descriptionDiv.textContent = 'Select a persona to see its description.';
+                        return;
+                    }
+                    try {
+                        const response = await fetch(`/api/persona/${encodeURIComponent(selectedPersona)}`);
+                        if (!response.ok) throw new Error('Could not load description.');
+                        const data = await response.json();
+                        descriptionDiv.textContent = data.description || 'No description available.';
+                    } catch (error) {
+                        descriptionDiv.textContent = error.message;
+                    }
+                }
+
+                personaSelect.addEventListener('change', updateDataPersonaDescription);
+
+                // Initial load of the description for the default persona
+                updateDataPersonaDescription();
+                
+                // Add event listeners after form is built
+                formContainer.querySelectorAll('input, textarea, select').forEach(input => {
+                    input.addEventListener('input', validateForm);
+                    input.addEventListener('change', validateForm);
+                });
+
+                validateForm(); // Initial validation
+            } catch (error) {
+                document.getElementById('datapersona-form-content').innerHTML = 
+                    `<div class="error-message">Error loading configuration: ${error.message}</div>`;
+            }
+        }
+
+        // Build a generic persona selector component
+        async function buildPersonaSelector() {
+            try {
+                const response = await fetch('/api/personas');
+                if (!response.ok) throw new Error('Failed to fetch personas');
+                const data = await response.json();
+                const personas = data.personas; // This is now an array of strings
+
+                const personaOptions = personas.map(p => `<option value="${p}">${p}</option>`).join('');
+
+                return `
+                    <div class="form-group" style="margin-top: 25px; padding-top: 20px; border-top: 1px solid rgba(0, 212, 255, 0.1);">
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="use_persona" onchange="togglePersonaDropdown(this.checked)">
+                            <label for="use_persona">Use Persona</label>
+                        </div>
+                    </div>
+                    <div id="persona-selection-group" style="display: none;">
+                        <div class="form-group">
+                            <label for="persona_name">Choose Persona</label>
+                            <select id="persona_name" onchange="updateGenericPersonaDescription()">${personaOptions}</select>
+                        </div>
+                        <div id="generic-persona-description" style="color: #8a93a2; font-size: 13px; margin-top: 10px; padding: 10px; border: 1px solid rgba(0, 212, 255, 0.1); border-radius: 4px; background: #1a1f3a;">
+                            Select a persona to see its description.
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                console.error("Error building persona selector:", error);
+                return `<div class="error-message">Could not load personas.</div>`;
+            }
+        }
+
+        // Build a generic persona selector component
+        async function buildPersonaSelector() {
+            try {
+                const response = await fetch('/api/personas');
+                if (!response.ok) throw new Error('Failed to fetch personas');
+                const data = await response.json();
+                const personas = data.personas; // This is now an array of strings
+
+                const personaOptions = personas.map(p => `<option value="${p}">${p}</option>`).join('');
+
+                return `
+                    <div class="form-group" style="margin-top: 25px; padding-top: 20px; border-top: 1px solid rgba(0, 212, 255, 0.1);">
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="use_persona" onchange="togglePersonaDropdown(this.checked)">
+                            <label for="use_persona">Use Persona</label>
+                        </div>
+                    </div>
+                    <div id="persona-selection-group" style="display: none;">
+                        <div class="form-group">
+                            <label for="persona_name">Choose Persona</label>
+                            <select id="persona_name" onchange="updateGenericPersonaDescription()">${personaOptions}</select>
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                console.error("Error building persona selector:", error);
+                return `<div class="error-message">Could not load personas.</div>`;
+            }
+        }
+
+        // Function to toggle the persona dropdown
+        function togglePersonaDropdown(enabled) {
+            const group = document.getElementById('persona-selection-group');
+            const dropdown = document.getElementById('persona_name');
+            if (group && dropdown) {
+                if (enabled) {
+                    group.style.display = 'block';
+                    dropdown.disabled = false;
+                } else {
+                    group.style.display = 'none';
+                    dropdown.disabled = true;
+                }
+                // Also update the description when the dropdown is toggled
+                if (enabled) {
+                    updateGenericPersonaDescription();
+                }
+            }
+        }
+
+        // Function to update the description for the generic persona selector
+        async function updateGenericPersonaDescription() {
+            const select = document.getElementById('persona_name');
+            const descriptionDiv = document.getElementById('generic-persona-description');
+            if (!select || !descriptionDiv) return;
+
+            const personaName = select.value;
+            if (!personaName) {
+                descriptionDiv.textContent = 'Select a persona to see its description.';
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/persona/${encodeURIComponent(personaName)}`);
+                if (!response.ok) throw new Error('Could not load description.');
+                const data = await response.json();
+                descriptionDiv.textContent = data.description || 'No description available.';
+            } catch (error) {
+                descriptionDiv.textContent = error.message;
+            }
+        }
+
+        // Validate form and enable/disable start button
+        function validateForm() {
+            if (!currentTool) {
+                startJobBtn.disabled = true; // Still disable, but it's hidden by showOverviewPage
+                return;
+            }
+
+            const config = getConfig();
+            let isValid = true;
+
+            switch(currentTool.id) {
+                case 'databird':
+                    isValid = config.dataset_name && config.topics && config.topics.length > 0;
+                    break;
+                case 'datapersona':
+                    const files = document.getElementById('files').files;
+                    isValid = config.dataset_name && files && files.length > 0;
+                    break;
+                case 'dataqa':
+                    isValid = config.dataset_name && config.source_urls && config.source_urls.length > 0;
+                    if (!config.auto_perspectives) {
+                        isValid = isValid && config.manual_perspectives && config.manual_perspectives.length > 0;
+                    }
+                    break;
+                case 'datawriter':
+                // Validate min < max for datawriter (parse as numbers!)
+                const minTokens = parseFloat(config.min_tokens);
+                const maxTokens = parseFloat(config.max_tokens);
+                if (isNaN(minTokens) || isNaN(maxTokens) || minTokens >= maxTokens) {
+                    isValid = false;
+                }
+                isValid = isValid && config.dataset_name && config.document_count > 0;
+                break;
+                case 'datamix':
+                    isValid = config.dataset_name && config.total_samples > 0;
+                    break;
+                case 'dataconvo':
+                    const convoFile = document.getElementById('file').files;
+                    isValid = config.dataset_name && convoFile && convoFile.length > 0;
+                    break;
+                case 'reformat':
+                    const reformatFile = document.getElementById('file').files;
+                    isValid = config.dataset_name && reformatFile && reformatFile.length > 0;
+                    break;
+                default:
+                    isValid = false;
+            }
+
+            startJobBtn.disabled = !isValid;
+        }
+        
+        // Collect config from form
+        function getConfig() {
+            // Helper for DataConvo slider
+            function getRoundWeights(sliderValue) {
+                const value = parseInt(sliderValue, 10);
+                let r1, r2, r3;
+                if (value <= 50) {
+                    // From 100/0/0 to 25/50/25
+                    const p = value / 50;
+                    r1 = 100 - 75 * p;
+                    r2 = 50 * p;
+                    r3 = 25 * p;
+                } else {
+                    // From 25/50/25 to 0/0/100
+                    const p = (value - 50) / 50;
+                    r1 = 25 - 25 * p;
+                    r2 = 50 - 50 * p;
+                    r3 = 25 + 75 * p;
+                }
+                return { "rounds_1": Math.round(r1), "rounds_2": Math.round(r2), "rounds_3": Math.round(r3) };
+            }
+            const config = {};
+            const configSection = document.querySelector('.config-section');
+            
+            configSection.querySelectorAll('input, textarea, select').forEach(input => {
+                const id = input.id;
+                if (!id) return;
+                
+                if (input.type === 'checkbox') {
+                    config[id] = input.checked;
+                } else if (input.type === 'number') {
+                    config[id] = parseFloat(input.value);
+                } else if (id === 'dataset_size') {
+                    const size = input.value;
+                    config['extended_auto'] = (size === 'medium' || size === 'large');
+                    config['extra_extended_auto'] = (size === 'large');
+                } else if (id === 'manual_perspectives') {
+                    // This MUST come before the generic TEXTAREA handler.
+                    // Parse the Python-like tuple strings into a JSON-compatible array of arrays.
+                    const text = input.value;
+                    const lines = text.split('\n').filter(line => line.trim() !== '');
+                    const perspectives = [];
+                    const regex = /\(['"]([^'"]+)['"],\s*['"]([^'"]+)['"]\)/;
+                    for (const line of lines) {
+                        const match = line.trim().match(regex);
+                        if (match && match.length === 3) {
+                            perspectives.push([match[1], match[2]]);
+                        }
+                    }
+                    config[id] = perspectives;
+                } else if (input.tagName === 'TEXTAREA') {
+                    config[id] = input.value.split('\n').filter(line => line.trim());
+                } else if (id === 'round_weights_slider') {
+                    config['round_weights'] = getRoundWeights(input.value);
+                } else {
+                    config[id] = input.value;
+                }
+            });
+
+            // Handle generic persona selector
+            const usePersonaCheckbox = configSection.querySelector('#use_persona');
+            if (usePersonaCheckbox) {
+                config['use_persona'] = usePersonaCheckbox.checked;
+                config['persona_name'] = configSection.querySelector('#persona_name').value;
+            }
+
+            const settings = JSON.parse(localStorage.getItem('allSettings')) || {
+                providers: {
+                    openai: { base_url: 'https://api.openai.com/v1', api_key: '', llm_model: ''},
+                    gemini: { base_url: 'https://generativelanguage.googleapis.com/v1beta/openai/', api_key: '', llm_model: ''},
+                    openrouter: { base_url: 'https://openrouter.ai/api/v1', api_key: '', llm_model: ''},
+                    other: { base_url: 'http://localhost:11434', api_key: '', llm_model: ''},
+                },
+                currentProvider: 'openai'
+            };
+            const currentProviderId = settings.currentProvider || 'openai';
+            const providerSettings = settings.providers[currentProviderId] || {};
+
+            config['llm_settings'] = {
+                llm_provider: currentProviderId,
+                base_url: providerSettings.base_url,
+                api_key: providerSettings.api_key,
+                llm_model: providerSettings.llm_model,
+                hugging_face_api_key: settings.hugging_face_api_key
+            };
+            
+            return config;
+        }
+        
+        // Start a job
+        async function startJob() {
+            if (!currentTool) {
+                alert('Please select a tool first');
+                return;
+            }
+            
+            try {
+                let response;
+                const config = getConfig();
+
+                if (currentTool.id === 'datapersona') {
+                    const formData = new FormData();
+                    const files = document.getElementById('files').files;
+
+                    if (files.length === 0) {
+                        alert('Please select at least one file to upload.');
+                        return;
+                    }
+
+                    for (const file of files) {
+                        formData.append('files', file);
+                    }
+
+                    const numReplies = document.querySelector('input[name="num_replies"]:checked').value;
+
+                    // Append other form fields from config
+                    formData.append('persona', config.persona);
+                    formData.append('generate_reply_1', numReplies >= 1);
+                    formData.append('generate_reply_2', numReplies == 2);
+                    formData.append('save_interval', config.save_interval);
+                    formData.append('export_alpaca', config.export_alpaca);
+                    formData.append('dataset_name', config.dataset_name);
+                    formData.append('llm_settings', JSON.stringify(config.llm_settings));
+
+                    response = await fetch(`/api/jobs/datapersona`, {
+                        method: 'POST',
+                        body: formData
+                        // No 'Content-Type' header for multipart/form-data, browser sets it
+                    });
+                } else if (currentTool.id === 'dataconvo') {
+                    const formData = new FormData();
+                    const file = document.getElementById('file').files[0];
+
+                    if (!file) {
+                        alert('Please select a file to upload.');
+                        return;
+                    }
+                    formData.append('file', file);
+                    formData.append('dataset_name', config.dataset_name);
+                    formData.append('save_interval', config.save_interval);
+                    formData.append('round_weights', JSON.stringify(config.round_weights));
+                    formData.append('use_persona', config.use_persona);
+                    formData.append('persona_name', config.persona_name || '');
+                    formData.append('llm_settings', JSON.stringify(config.llm_settings));
+
+                    response = await fetch(`/api/jobs/dataconvo`, {
+                        method: 'POST',
+                        body: formData
+                    });
+                } else if (currentTool.id === 'reformat') {
+                    const formData = new FormData();
+                    const file = document.getElementById('file').files[0];
+
+                    if (!file) {
+                        alert('Please select a file to upload.');
+                        return;
+                    }
+                    formData.append('file', file);
+                    formData.append('dataset_name', config.dataset_name);
+                    formData.append('target_format', config.target_format);
+                    formData.append('llm_settings', JSON.stringify(config.llm_settings));
+
+                    response = await fetch(`/api/jobs/reformat`, {
+                        method: 'POST',
+                        body: formData
+                    });
+                } else {
+                    response = await fetch(`/api/jobs/${currentTool.id}`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(config)
+                    });
+                }
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                monitorJob(data.job_id);
+                loadJobs();
+            } catch (error) {
+                console.error('Error:', error);
+                alert(`Error starting job: ${error.message}`);
+            }
+        }
+        
+        // Monitor job via WebSocket
+        function monitorJob(jobId) {
+            // Close existing WebSocket if any
+            if (activeWebSocket) {
+                activeWebSocket.close();
+            }
+            
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            activeWebSocket = new WebSocket(`${protocol}//${window.location.host}/ws/${jobId}`);
+            
+            activeWebSocket.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                updateJobDisplay(data);
+            };
+            
+            activeWebSocket.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+            
+            activeWebSocket.onclose = () => {
+                activeWebSocket = null;
+            };
+        }
+        
+        // Update job display
+        function updateJobDisplay(job) {
+            const jobsList = document.getElementById('jobs-list');
+            let jobDiv = document.getElementById(`job-${job.job_id}`);
+            
+            // Remove empty state if present
+            const emptyState = jobsList.querySelector('.empty-jobs');
+            if (emptyState) {
+                emptyState.remove();
+            }
+            
+            if (!jobDiv) {
+                jobDiv = document.createElement('div');
+                jobDiv.id = `job-${job.job_id}`;
+                jobDiv.dataset.createdAt = job.created_at;
+                
+                // Insert at correct position (newest first)
+                const existingJobs = Array.from(jobsList.children);
+                const insertBefore = existingJobs.find(el => el.dataset.createdAt < job.created_at);
+                jobsList.insertBefore(jobDiv, insertBefore || null);
+            }
+            
+            jobDiv.className = `job-item status-${job.status}`;
+            
+            const statusClass = job.status === 'running' ? 'running' : 
+                              job.status === 'completed' ? 'completed' : 
+                              job.status === 'failed' ? 'failed' : '';
+            
+            let actionsHTML = '';
+            let errorHTML = '';
+            if (job.status === 'completed') {
+                actionsHTML = `<button class="btn-small btn-download" onclick="downloadJob('${job.job_id}')">Download</button>`;
+            }
+            if (job.status === 'failed') {
+                errorHTML = `<div class="error-message">Job failed. Check logs.</div>`;
+            }
+            
+            jobDiv.innerHTML = `
+                <div class="job-header">
+                    <span class="job-title">${job.dataset_name} (${job.tool})</span>
+                    <span class="job-status ${statusClass}">${job.status}</span>
+                </div>
+                <div class="job-id">${job.job_id}</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: ${job.progress || 0}%"></div>
+                </div>
+                <div class="progress-text">${job.progress || 0}% complete</div>
+                <div class="job-actions">
+                    ${errorHTML}
+                    <div class="job-actions-buttons">
+                        ${actionsHTML}
+                        <button class="btn-small btn-delete" onclick="deleteJob('${job.job_id}')">Delete</button>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Download job output
+        async function downloadJob(jobId) {
+            window.location.href = `/api/jobs/${jobId}/download`;
+        }
+        
+        // Delete job
+        async function deleteJob(jobId) {
+            if (!confirm('Are you sure you want to delete this job?')) return;
+            
+            try {
+                const response = await fetch(`/api/jobs/${jobId}`, { method: 'DELETE' });
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to delete job');
+                }
+                
+                const jobDiv = document.getElementById(`job-${jobId}`);
+                if (jobDiv) {
+                    jobDiv.remove();
+                }
+                
+                // Add empty state if no jobs left
+                const jobsList = document.getElementById('jobs-list');
+                if (jobsList.children.length === 0) {
+                    jobsList.innerHTML = '<div class="empty-jobs">No jobs yet</div>';
+                }
+            } catch (error) {
+                alert(`Error deleting job: ${error.message}`);
+                console.error('Error:', error);
+            }
+        }
+        
+        // Load jobs on startup
+        async function loadJobs() {
+            try {
+                const response = await fetch('/api/jobs');
+                const data = await response.json();
+                
+                const jobsList = document.getElementById('jobs-list');
+                jobsList.innerHTML = '';
+                
+                if (data.jobs.length === 0) {
+                    jobsList.innerHTML = '<div class="empty-jobs">No jobs yet</div>';
+                } else {
+                    data.jobs.forEach(updateJobDisplay);
+                }
+            } catch (error) {
+                console.error('Error loading jobs:', error);
+            }
+        }
+        
+        // Initialize
+        loadSettings();
+        loadJobs();
+        showOverviewPage(); // Show overview page on initial load
+        setInterval(loadJobs, 5000); // Refresh every 5 seconds
+
+        // Clear Failed Jobs functionality
+        const clearFailedJobsBtn = document.getElementById('clear-failed-jobs-btn');
+        if (clearFailedJobsBtn) {
+            clearFailedJobsBtn.addEventListener('click', async () => {
+                if (!confirm('Are you sure you want to delete all failed jobs?')) {
+                    return;
+                }
+                try {
+                    const response = await fetch('/api/jobs/clear_failed', { method: 'DELETE' });
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.detail || 'Failed to clear failed jobs');
+                    }
+                    alert('Failed jobs cleared successfully!');
+                    loadJobs(); // Refresh the job list
+                } catch (error) {
+                    alert(`Error clearing failed jobs: ${error.message}`);
+                    console.error('Error:', error);
+                }
+            });
+        }
+    </script>
+
+</body>
+</html>

@@ -1,0 +1,7 @@
+fastapi
+uvicorn[standard]
+openai
+python-multipart
+aiofiles
+requests
+numpy

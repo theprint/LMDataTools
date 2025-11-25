@@ -1,0 +1,5 @@
+.env
+!.env.example
+
+/jobs/*
+/__pycache__/
