@@ -5,3 +5,5 @@ python-multipart
 aiofiles
 requests
 numpy
+emoji
+bs4

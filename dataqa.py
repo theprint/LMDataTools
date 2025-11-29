@@ -197,7 +197,7 @@ def generate_qa_for_chunk(client, content, perspectives):
         f"Generate standalone sets of very high-level, general questions and their detailed answers. "
         f"Focus on questions that would likely be asked by {DEFAULT_CONFIG['TARGET_AUDIENCE']}, "
         f"and base your responses on the following content:\n\n{content}\n\n"
-        f"{final_formatting_instructions} "
+        f"{formatting_instructions} "
         "Remember, you MUST precede all questions with Q: and precede answers with A: "
         "or the entire response will be discarded."
     )
@@ -215,7 +215,7 @@ def generate_qa_for_chunk(client, content, perspectives):
             f"{DEFAULT_CONFIG['TARGET_AUDIENCE']} as the target audience. Do NOT number or group questions and answers."
             f" Go deep into details, techniques and specifics, and provide in-depth, detailed answers"
             f" to each generated question. Add step-by-step instructions if necessary." 
-            f"{final_formatting_instructions}\n"
+            f"{formatting_instructions}\n"
             f"To re-iterate, we need standalone follow-up Q&A sets that dig into this original question and answer:\n"
             f" Q: {question}\n"
             f" A: {answer}"
@@ -235,7 +235,7 @@ def generate_qa_for_chunk(client, content, perspectives):
             f"Generate standalone sets of questions and their detailed answers. "
             f"Focus on questions that would likely be asked by {perspective}, "
             f"and base your responses on the following content:\n\n{content}\n\n" 
-            f"{final_formatting_instructions} "
+            f"{formatting_instructions} "
             "Remember, you MUST precede all questions with Q: and precede answers with A: "
             "or the entire response will be discarded."
         )
@@ -438,7 +438,32 @@ if __name__ == "__main__":
             
             # Get perspectives
             if DEFAULT_CONFIG.get("AUTO_PERSPECTIVES", True):
-                topic = source_url.split('/')[-1].replace('-', ' ').replace('.html', '')
+                # Extract topic from URL more robustly
+                from urllib.parse import urlparse
+                parsed = urlparse(source_url)
+                
+                # Try path segments first (excluding empty strings)
+                path_parts = [p for p in parsed.path.split('/') if p]
+                
+                if path_parts:
+                    # Use last meaningful path segment
+                    topic = path_parts[-1]
+                    # Remove common file extensions
+                    topic = re.sub(r'\.(html?|php|asp|jsp)$', '', topic, flags=re.IGNORECASE)
+                    # Convert dashes/underscores to spaces
+                    topic = topic.replace('-', ' ').replace('_', ' ')
+                else:
+                    # Fallback to domain name if path is empty
+                    topic = parsed.netloc.replace('www.', '')
+                
+                # Final cleanup
+                topic = topic.strip()
+                
+                if not topic:
+                    print(f"  Warning: Could not extract topic from URL, using generic 'the content'")
+                    topic = "the content"
+                
+                print(f"  Generating perspectives for: {topic}")
                 perspectives = generate_auto_perspectives(client, topic, DEFAULT_CONFIG.get("AUTO_PERSPECTIVE_COUNT", 5))
             else:
                 perspectives = DEFAULT_CONFIG.get("MANUAL_PERSPECTIVES", [])
