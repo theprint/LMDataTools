@@ -4,6 +4,7 @@ openai
 python-multipart
 aiofiles
 requests
+scikit-learn
 numpy
 emoji
 bs4

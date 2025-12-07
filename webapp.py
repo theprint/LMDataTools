@@ -2,6 +2,8 @@
 """
 Web interface for DataSynthesis Suite
 """
+from datapersona import DEFAULT_CONFIG as DATAPERSONA_DEFAULTS
+from openai import OpenAI # Import OpenAI client for model listing
 from fastapi import FastAPI, BackgroundTasks, HTTPException, WebSocket, File, UploadFile, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse
@@ -12,20 +14,16 @@ import os
 import shutil
 import zipfile
 from datetime import datetime
-from datacore.personas.loader import get_all_personas
 from typing import Optional, Dict, List
 import asyncio
 from pathlib import Path
 
-import requests
-from requests.exceptions import RequestException
 import re
-app = FastAPI(title="DataSynthesis Suite")
+app = FastAPI(title="LM Data Tools")
 
 # Job tracking
 active_jobs: Dict[str, dict] = {}
 JOBS_DIR = "./jobs"
-job_websockets: Dict[str, asyncio.Queue] = {}
 os.makedirs(JOBS_DIR, exist_ok=True)
 
 # ============================================================================
@@ -42,7 +40,7 @@ class LLMSettings(BaseModel):
 class DataPersonaConfig(BaseModel):
     persona: str
     generate_reply_1: bool = True
-    generate_reply_2: bool = False
+    generate_reply_2: bool = True
     save_interval: int = 250
     dataset_name: str = "my-persona-dataset" # Add dataset_name here
     llm_settings: Optional[LLMSettings] = None
@@ -54,18 +52,13 @@ class DataBirdConfig(BaseModel):
     full_auto: bool = True
     dataset_size: str = "small"
     clean_score: float = 0.76
-    use_persona: bool = False
-    persona_name: Optional[str] = None
     llm_settings: Optional[LLMSettings] = None
 
 
 class DataWriterConfig(BaseModel):
     document_count: int = 500
-    min_tokens: int = 200
-    max_tokens: int = 10000
     temperature: float = 0.8
-    add_summary: bool = False
-    dataset_name: str = "my-writer-dataset"
+    dataset_name: str = "my-writer-dataset" # Add dataset_name here
     llm_settings: Optional[LLMSettings] = None
 
 
@@ -74,8 +67,6 @@ class DataQAConfig(BaseModel):
     source_urls: List[str] = []
     auto_perspectives: bool = True
     confidence_threshold: float = 0.68
-    use_persona: bool = False
-    persona_name: Optional[str] = None
     manual_perspectives: Optional[List[tuple]] = None
     llm_settings: Optional[LLMSettings] = None
 
@@ -85,32 +76,6 @@ class DataMixConfig(BaseModel):
     total_samples: int = 10000
     dataset_sources: List[tuple]  # (name, weight, subset)
     llm_settings: Optional[LLMSettings] = None
-
-class DataConvoConfig(BaseModel):
-    dataset_name: str = "my-convo-dataset"
-    save_interval: int = 100
-    round_weights: Dict[str, int] = {"rounds_1": 25, "rounds_2": 50, "rounds_3": 25}
-    use_persona: bool = False
-    persona_name: Optional[str] = None
-    llm_settings: Optional[LLMSettings] = None
-
-class DataReformatConfig(BaseModel):
-    dataset_name: str = "reformatted-dataset"
-    target_format: str = "alpaca" # e.g., alpaca, sharegpt, qa
-    llm_settings: Optional[LLMSettings] = None
-
-class DataThinkConfig(BaseModel):
-    dataset_name: str = "my-thinking-dataset"
-    save_interval: int = 50
-    thinking_temperature: float = 0.7
-    response_temperature: float = 0.7
-    use_persona: bool = False
-    persona_name: Optional[str] = None
-    llm_settings: Optional[LLMSettings] = None
-
-
-
-
 
 
 # ============================================================================
@@ -143,7 +108,7 @@ def create_job_workspace(job_id: str, tool_name: str, dataset_name: str):
     return job_dir
 
 
-async def update_job_status(job_id: str, status: str, progress: int = None):
+def update_job_status(job_id: str, status: str, progress: int = None):
     """Update job status."""
     job_dir = os.path.join(JOBS_DIR, job_id)
     metadata_file = os.path.join(job_dir, "metadata.json")
@@ -161,10 +126,6 @@ async def update_job_status(job_id: str, status: str, progress: int = None):
             json.dump(metadata, f, indent=2)
         
         active_jobs[job_id] = metadata
-
-        # Notify WebSocket listeners
-        if job_id in job_websockets:
-            await job_websockets[job_id].put(metadata)
 
 
 def write_config_file(tool_name: str, config_dict: dict, job_dir: str):
@@ -191,7 +152,7 @@ async def run_tool_subprocess(tool_name: str, job_id: str, config: dict):
     job_dir = os.path.join(JOBS_DIR, job_id)
     
     try:
-        await update_job_status(job_id, "running", 0)
+        update_job_status(job_id, "running", 0)
 
         # Prepare environment variables for the subprocess
         env = os.environ.copy()
@@ -249,7 +210,7 @@ async def run_tool_subprocess(tool_name: str, job_id: str, config: dict):
         script_path = os.path.join(os.getcwd(), f"{tool_name}.py")
 
         process = await asyncio.create_subprocess_exec(
-            "python", "-u", script_path,
+            "python", script_path,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=job_dir,
@@ -279,12 +240,6 @@ async def run_tool_subprocess(tool_name: str, job_id: str, config: dict):
                     'dataqa': r"Progress: (\d+)/(\d+)",
                     # For datamix: "Taking 123 of 456 entries"
                     'datamix': r"Taking (\d+) of (\d+) entries",
-                    # For dataconvo: "Processing entry 123 of 456"
-                    'dataconvo': r"Processing entry (\d+) of (\d+)",
-                    # For reformat: "Reformatted entry 123 of 456"
-                    'reformat': r"Reformatted entry (\d+) of (\d+)",
-                    # For datathink: "Processing entry 123/456"
-                    'datathink': r"Processing entry (\d+)/(\d+)",
                 }
 
                 if tool_name in progress_patterns:
@@ -294,12 +249,12 @@ async def run_tool_subprocess(tool_name: str, job_id: str, config: dict):
                         current, total = int(match.group(1)), int(match.group(2))
                         if total > 0:
                             progress = int((current / total) * 100)
-                            await update_job_status(job_id, "running", progress)
+                            update_job_status(job_id, "running", progress)
                 
                 # --- Progress Parsing for streaming ---
                 if tool_name == 'datapersona' and line_text.strip().endswith('.'):
                      # This is a simple way to show activity. We don't calculate percentage here.
-                     await update_job_status(job_id, "running", active_jobs[job_id].get('progress', 0))
+                     update_job_status(job_id, "running", active_jobs[job_id].get('progress', 0))
                 # --- End Progress Parsing ---
 
                 stdout_data.append(line_text)
@@ -342,15 +297,15 @@ async def run_tool_subprocess(tool_name: str, job_id: str, config: dict):
             with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
                 # Find JSON files generated by the tool in the job directory
                 for file in os.listdir(actual_output_path):
-                    if (file.endswith('.jsonl') or file.endswith('.json')) and 'checkpoint' not in file and file not in ['config.json', 'metadata.json', 'progress.json']:
+                    if file.endswith('.json') and file not in ['config.json', 'metadata.json']:
                         file_path = os.path.join(actual_output_path, file)
                         zipf.write(file_path, arcname=file)
-                        # We no longer remove the file, as it might be the primary output.
+                        os.remove(file_path) # Clean up the file after adding to zip
                         output_files_found = True
             
-            await update_job_status(job_id, "completed", 100)
+            update_job_status(job_id, "completed", 100)
         else:
-            await update_job_status(job_id, "failed", 0)
+            update_job_status(job_id, "failed", 0)
             
             # Save detailed error log
             with open(os.path.join(job_dir, "error.log"), 'w', encoding='utf-8') as f:
@@ -359,7 +314,7 @@ async def run_tool_subprocess(tool_name: str, job_id: str, config: dict):
                 f.write(f"STDERR:\n{chr(10).join(stderr_data)}")
     
     except Exception as e:
-        await update_job_status(job_id, "failed", 0)
+        update_job_status(job_id, "failed", 0)
         with open(os.path.join(job_dir, "error.log"), 'w', encoding='utf-8') as f:
             f.write(f"Exception: {str(e)}\n")
             f.write(f"Type: {type(e).__name__}\n")
@@ -387,42 +342,28 @@ async def list_tools():
             {"id": "datawriter", "name": "DataWriter", "description": "Generate documents"},
             {"id": "dataqa", "name": "DataQA", "description": "Web scraping to Q&A"},
             {"id": "datamix", "name": "DataMix", "description": "Mix HuggingFace datasets"}
-        ,   
-            {"id": "reformat", "name": "Reformat", "description": "Convert dataset formats"},
-            {"id": "dataconvo", "name": "DataConvo", "description": "Expand conversations"},
-            {"id": "datathink", "name": "DataThink", "description": "Enhance with reasoning"}]
+        ]
     }
 
 
 @app.get("/api/personas")
 async def list_personas():
     """List available personas from personas.json."""
-    try:
-        # Use the centralized loader
-        all_personas = get_all_personas()
-        return {"personas": all_personas}
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="personas.json not found in datacore/personas/")
+    personas_file = "personas.json"
+    if not os.path.exists(personas_file):
+        raise HTTPException(status_code=404, detail="personas.json not found")
 
+    with open(personas_file, 'r', encoding='utf-8') as f:
+        personas_data = json.load(f)
 
-@app.get("/api/persona/{persona_name}")
-async def get_single_persona_description(persona_name: str):
-    """Get the description for a single persona."""
-    try:
-        from datacore.personas.loader import get_persona_description
-        description = get_persona_description(persona_name)
-        return {"description": description}
-    except ValueError:
-        raise HTTPException(status_code=404, detail=f"Persona '{persona_name}' not found.")
-    except FileNotFoundError:
-        raise HTTPException(status_code=500, detail="personas.json not found.")
+    return {"personas": personas_data}
 
 
 @app.get("/api/defaults/datapersona")
 async def get_datapersona_defaults():
-    """Get default configuration for DataPersona by returning the model."""
-    # This is more robust than dynamic import, especially in Docker.
-    return DataPersonaConfig(persona="default") # A default persona is needed since it has no default
+    """Get default configuration for DataPersona."""
+    return DATAPERSONA_DEFAULTS
+
 
 @app.post("/api/jobs/datapersona")
 async def run_datapersona(
@@ -524,108 +465,6 @@ async def run_dataqa(config: DataQAConfig, background_tasks: BackgroundTasks):
     return {"job_id": job_id, "status": "starting"}
 
 
-@app.post("/api/jobs/dataconvo")
-async def run_dataconvo(
-    background_tasks: BackgroundTasks,
-    dataset_name: str = Form(...),
-    save_interval: int = Form(...),
-    round_weights: str = Form(...), # JSON string for weights
-    use_persona: bool = Form(False),
-    persona_name: Optional[str] = Form(None),
-    llm_settings: str = Form(...),  # JSON string
-    file: UploadFile = File(...)
-):
-    """Start DataConvo job."""
-    job_id = generate_job_id()
-    job_dir = create_job_workspace(job_id, "dataconvo", dataset_name)
-    import_dir = os.path.join(job_dir, "import")
-    os.makedirs(import_dir, exist_ok=True)
-
-    with open(os.path.join(import_dir, file.filename), "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
-    config_dict = {
-        "dataset_name": dataset_name,
-        "save_interval": save_interval,
-        "round_weights": json.loads(round_weights),
-        "use_persona": use_persona,
-        "persona_name": persona_name,
-        "import_path": "import",
-        "job_id": job_id,
-        "llm_settings": json.loads(llm_settings)
-    }
-
-    background_tasks.add_task(run_tool_subprocess, "dataconvo", job_id, config_dict)
-    return {"job_id": job_id, "status": "starting"}
-
-@app.post("/api/jobs/reformat")
-async def run_reformat(
-    background_tasks: BackgroundTasks,
-    dataset_name: str = Form(...),
-    target_format: str = Form(...),
-    llm_settings: str = Form(...),  # JSON string
-    file: UploadFile = File(...)
-):
-    """Start Reformat job."""
-    job_id = generate_job_id()
-    job_dir = create_job_workspace(job_id, "reformat", dataset_name)
-    import_dir = os.path.join(job_dir, "import")
-    os.makedirs(import_dir, exist_ok=True)
-
-    # Save the uploaded file
-    with open(os.path.join(import_dir, file.filename), "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
-    config_dict = {
-        "dataset_name": dataset_name,
-        "target_format": target_format,
-        "import_path": "import",
-        "job_id": job_id,
-        "llm_settings": json.loads(llm_settings) # llm_settings might not be used but good to have
-    }
-
-    background_tasks.add_task(run_tool_subprocess, "reformat", job_id, config_dict)
-    return {"job_id": job_id, "status": "starting"}
-
-@app.post("/api/jobs/datathink")
-async def run_datathink(
-    background_tasks: BackgroundTasks,
-    dataset_name: str = Form(...),
-    save_interval: int = Form(...),
-    thinking_temperature: float = Form(...),
-    response_temperature: float = Form(...),
-    use_persona: bool = Form(False),
-    persona_name: Optional[str] = Form(None),
-    llm_settings: str = Form(...),  # JSON string
-    file: UploadFile = File(...)
-):
-    """Start DataThink job."""
-    job_id = generate_job_id()
-    job_dir = create_job_workspace(job_id, "datathink", dataset_name)
-    import_dir = os.path.join(job_dir, "import")
-    os.makedirs(import_dir, exist_ok=True)
-
-    # Save the uploaded file
-    with open(os.path.join(import_dir, file.filename), "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
-    config_dict = {
-        "dataset_name": dataset_name,
-        "save_interval": save_interval,
-        "thinking_temperature": thinking_temperature,
-        "response_temperature": response_temperature,
-        "use_persona": use_persona,
-        "persona_name": persona_name,
-        "import_path": "import",
-        "job_id": job_id,
-        "llm_settings": json.loads(llm_settings)
-    }
-
-    background_tasks.add_task(run_tool_subprocess, "datathink", job_id, config_dict)
-    return {"job_id": job_id, "status": "starting"}
-
-
-
 @app.post("/api/jobs/datamix")
 async def run_datamix(config: DataMixConfig, background_tasks: BackgroundTasks):
     """Start DataMix job."""
@@ -679,9 +518,39 @@ async def list_jobs():
     jobs = []
     for job_id in os.listdir(JOBS_DIR):
         metadata_file = os.path.join(JOBS_DIR, job_id, "metadata.json")
-        if os.path.exists(metadata_file):
+        try:
             with open(metadata_file, 'r') as f:
                 jobs.append(json.load(f))
+        except (json.JSONDecodeError, ValueError) as e:
+            # Skip corrupted or empty job files
+            print(f"Warning: Skipping corrupted metadata file for job {job_id}: {e}")
+            continue
+        except Exception as e:
+            # Log other errors but continue
+            print(f"Error reading metadata file for job {job_id}: {e}")
+            continue
+        try:
+            with open(metadata_file, 'r') as f:
+                jobs.append(json.load(f))
+        except (json.JSONDecodeError, ValueError) as e:
+            # Skip corrupted or empty job files
+            print(f"Warning: Skipping corrupted metadata file for job {job_id}: {e}")
+            continue
+        except Exception as e:
+            # Log other errors but continue
+            print(f"Error reading metadata file for job {job_id}: {e}")
+            continue
+        try:
+            with open(metadata_file, 'r') as f:
+                jobs.append(json.load(f))
+        except (json.JSONDecodeError, ValueError) as e:
+            # Skip corrupted or empty job files
+            print(f"Warning: Skipping corrupted metadata file for job {job_id}: {e}")
+            continue
+        except Exception as e:
+            # Log other errors but continue
+            print(f"Error reading metadata file for job {job_id}: {e}")
+            continue
     
     return {"jobs": sorted(jobs, key=lambda x: x["created_at"], reverse=True)}
 
@@ -690,24 +559,24 @@ async def list_jobs():
 async def websocket_progress(websocket: WebSocket, job_id: str):
     """WebSocket for real-time progress updates."""
     await websocket.accept()
-    queue = asyncio.Queue()
-    job_websockets[job_id] = queue
     
     try:
-        # Send initial status
-        initial_status = active_jobs.get(job_id)
-        if initial_status:
-            await websocket.send_json(initial_status)
-
         while True:
-            job_data = await queue.get()
-            await websocket.send_json(job_data)
-            if job_data.get("status") in ["completed", "failed"]:
+            # Check job status
+            job_data = active_jobs.get(job_id)
+            if job_data:
+                await websocket.send_json(job_data)
+            
+            # Stop if job completed or failed
+            if job_data and job_data.get("status") in ["completed", "failed"]:
+                await asyncio.sleep(1)  # Give client time to receive final message
                 break
+            
+            await asyncio.sleep(1)
+    
     except Exception as e:
         print(f"WebSocket error: {e}")
     finally:
-        del job_websockets[job_id]
         await websocket.close()
 
 @app.delete("/api/jobs/clear_failed")
@@ -764,45 +633,24 @@ async def delete_job(job_id: str):
     
         
 @app.get("/api/llm/models")
-async def get_llm_models(provider: str, base_url: str, api_key: Optional[str] = ""):
+async def get_llm_models(base_url: str, api_key: Optional[str] = None):
     """
-    Fetches a list of available models from an OpenAI-compatible /models endpoint.
-    Uses the synchronous `requests` library for robustness inside Docker.
+    Fetches a list of available models from the given LLM provider's /models endpoint.
     """
-    headers = {}
-    # Only add the Authorization header if an API key is provided.
-    # This allows requests to local servers or permissive APIs without a key.
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-
-    # The endpoint to fetch models is usually /models
-    if not base_url.endswith('/'):
-        base_url += '/'
-    url = f"{base_url}models"
-
     try:
-        # Use a timeout to prevent long hangs, especially for local servers.
-        response = requests.get(url, headers=headers, timeout=5)
-        response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
-        data = response.json()
+        # Ensure a placeholder API key is used if none is provided for local/other
+        if not api_key and ("localhost" in base_url or "127.0.0.1" in base_url):
+            api_key = "lm-studio" # Default placeholder for local LLMs
 
-        # Handle standard OpenAI/OpenRouter 'data' list
-        models = [model.get('id') for model in data.get('data', []) if model.get('id')]
-
-        # Handle Ollama/LM Studio 'models' list
-        if not models:
-            models = [model.get('name') for model in data.get('models', []) if model.get('name')]
-
-        if not models:
-            return {"models": []}
-
-        return {"models": sorted(list(set(models)))}
-
-    except RequestException as e:
-        # This will catch connection errors, timeouts, etc. and return a specific message.
-        raise HTTPException(status_code=500, detail=f"Network error fetching models from {url}: {str(e)}")
+        client = OpenAI(base_url=base_url, api_key=api_key)
+        models_response = client.models.list()
+        models = [model.id for model in models_response.data]
+        return {"models": models}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch or parse models: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch models: {e}")
+# ============================================================================
+# Startup
+# ============================================================================
 
 if __name__ == "__main__":
     import uvicorn
