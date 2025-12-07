@@ -99,6 +99,15 @@ class DataReformatConfig(BaseModel):
     target_format: str = "alpaca" # e.g., alpaca, sharegpt, qa
     llm_settings: Optional[LLMSettings] = None
 
+class DataThinkConfig(BaseModel):
+    dataset_name: str = "my-thinking-dataset"
+    save_interval: int = 50
+    thinking_temperature: float = 0.7
+    response_temperature: float = 0.7
+    use_persona: bool = False
+    persona_name: Optional[str] = None
+    llm_settings: Optional[LLMSettings] = None
+
 
 
 
@@ -274,6 +283,8 @@ async def run_tool_subprocess(tool_name: str, job_id: str, config: dict):
                     'dataconvo': r"Processing entry (\d+) of (\d+)",
                     # For reformat: "Reformatted entry 123 of 456"
                     'reformat': r"Reformatted entry (\d+) of (\d+)",
+                    # For datathink: "Processing entry 123/456"
+                    'datathink': r"Processing entry (\d+)/(\d+)",
                 }
 
                 if tool_name in progress_patterns:
@@ -378,7 +389,8 @@ async def list_tools():
             {"id": "datamix", "name": "DataMix", "description": "Mix HuggingFace datasets"}
         ,   
             {"id": "reformat", "name": "Reformat", "description": "Convert dataset formats"},
-            {"id": "dataconvo", "name": "DataConvo", "description": "Expand conversations"}]
+            {"id": "dataconvo", "name": "DataConvo", "description": "Expand conversations"},
+            {"id": "datathink", "name": "DataThink", "description": "Enhance with reasoning"}]
     }
 
 
@@ -574,6 +586,44 @@ async def run_reformat(
 
     background_tasks.add_task(run_tool_subprocess, "reformat", job_id, config_dict)
     return {"job_id": job_id, "status": "starting"}
+
+@app.post("/api/jobs/datathink")
+async def run_datathink(
+    background_tasks: BackgroundTasks,
+    dataset_name: str = Form(...),
+    save_interval: int = Form(...),
+    thinking_temperature: float = Form(...),
+    response_temperature: float = Form(...),
+    use_persona: bool = Form(False),
+    persona_name: Optional[str] = Form(None),
+    llm_settings: str = Form(...),  # JSON string
+    file: UploadFile = File(...)
+):
+    """Start DataThink job."""
+    job_id = generate_job_id()
+    job_dir = create_job_workspace(job_id, "datathink", dataset_name)
+    import_dir = os.path.join(job_dir, "import")
+    os.makedirs(import_dir, exist_ok=True)
+
+    # Save the uploaded file
+    with open(os.path.join(import_dir, file.filename), "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    config_dict = {
+        "dataset_name": dataset_name,
+        "save_interval": save_interval,
+        "thinking_temperature": thinking_temperature,
+        "response_temperature": response_temperature,
+        "use_persona": use_persona,
+        "persona_name": persona_name,
+        "import_path": "import",
+        "job_id": job_id,
+        "llm_settings": json.loads(llm_settings)
+    }
+
+    background_tasks.add_task(run_tool_subprocess, "datathink", job_id, config_dict)
+    return {"job_id": job_id, "status": "starting"}
+
 
 
 @app.post("/api/jobs/datamix")

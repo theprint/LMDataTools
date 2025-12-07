@@ -95,8 +95,8 @@
         }
         
         .tool-btn {
-            min-width: 120px;
-            padding: 15px 25px;
+            min-width: 90px;
+            padding: 10px 20px;
             background: #1e2742;
             border: 2px solid rgba(0, 212, 255, 0.2);
             border-radius: 8px;
@@ -104,7 +104,7 @@
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             text-align: center;
             font-weight: 600;
-            font-size: 15px;
+            font-size: 13px;
             color: #c4cdd5;
             position: relative;
             overflow: hidden;
@@ -396,13 +396,15 @@
         
         /* Buttons */
         .btn-primary {
+            min-width: 90px;
+            padding: 10px 20px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 13px;
             background: linear-gradient(135deg, #ff8c00 0%, #ff6347 100%);
             color: #fff;
             border: none;
-            padding: 12px 32px;
-            border-radius: 6px;
-            font-size: 15px;
-            font-weight: 700;
+            border-radius: 8px;
             cursor: pointer;
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             margin-top: 10px;
@@ -726,9 +728,9 @@
     <div class="container">
         <!-- Header -->
         <div class="header" id="app-header">
-            <h1>LMDataTools</h1>
-            <p>Synthetic data generation tools developed by <a href="https://huggingface.co/theprint" target="_blank">Rasmus Rasmussen</a>.
-                <br>Uses the openai SDK and supports any LLM provider or local AI server that can work with this library. <strong>LMDataTools</strong> is released under the <a href="https://www.apache.org/licenses/LICENSE-2.0" target="_blank">Apache 2.0 license</a>.</p>
+            <h1>LM Data Tools</h1>
+            <p>Synthetic data generation tools developed by <a href="https://rasmusrasmussen.com" target="_blank">Rasmus Rasmussen</a>.
+                <br>Works with any LLM provider or local AI server that supports the OpenAI sdk. <a href="https://github.com/theprint/LMDataTools" title="LM Data Tools on Github"><strong>LM Data Tools</strong></a> is released under the <a href="https://www.apache.org/licenses/LICENSE-2.0" target="_blank">Apache 2.0 license</a>.</p>
         </div>
         
         <!-- Tool Selector -->
@@ -739,13 +741,14 @@
                 <button class="tool-btn" data-tool="dataqa" title="Web scraping to Q&A">DataQA</button>
                 <button class="tool-btn" data-tool="datawriter" title="Generate documents">DataWriter</button>
                 <button class="tool-btn" data-tool="dataconvo" title="Expand conversations">DataConvo</button>
+                <button class="tool-btn" data-tool="datathink" title="Enhance with reasoning">DataThink</button>
                 <div class="tool-separator"></div>
                 <button class="tool-btn" data-tool="datamix" title="Mix HuggingFace datasets">DataMix</button>
                 <button class="tool-btn" data-tool="reformat" title="Reformat datasets">Reformat</button>
             </div>
             <div class="right-aligned-buttons" style="display: flex; align-items: center; gap: 12px;">
                 <!-- "Start Job" button -->
-                <button class="btn-primary" id="start-job-btn" style="display: none; padding: 15px 32px; border: 2px solid transparent; margin-top: 0;" disabled>Start Job</button>
+                <button class="btn-primary" id="start-job-btn" style="display: none; border: 2px solid transparent; margin-top: 0;" disabled>Start Job</button>
                 <button class="tool-btn btn-secondary" id="settings-btn">Settings</button>
             </div>
         </div>
@@ -775,7 +778,7 @@
         <div class="popover-content">
             <div class="popover-header">
                 <h2>Settings</h2>
-                <button class="close-btn" id="close-popover-btn">✖</button>
+                <button class="close-btn" id="close-popover-btn">×</button>
             </div>
             <div class="form-group">
                 <label for="llm_provider">LLM Provider</label>
@@ -1033,6 +1036,10 @@
                     <div class="tool-card" data-tool="dataconvo">
                         <h3>DataConvo</h3>
                         <p>Expands single-turn conversations into multi-turn dialogues, with adjustable conversation lengths.</p>
+                    </div>
+                    <div class="tool-card" data-tool="datathink">
+                        <h3>DataThink</h3>
+                        <p>Enhances existing datasets by generating reasoning steps before responses, creating more thoughtful and detailed answers.</p>
                     </div>
                     <div class="tool-card" data-tool="datamix">
                         <h3>DataMix</h3>
@@ -1315,6 +1322,46 @@
                     `;
                     newConfigContent.innerHTML = formHTML;
                     break;
+
+                case 'datathink':
+                    formHTML += `
+                        <div class="form-group">
+                            <label>Dataset Name</label>
+                            <input type="text" id="dataset_name" value="my-thinking-dataset">
+                        </div>
+                        <div class="form-group">
+                            <label>Source File (.json or .jsonl)</label>
+                            <input type="file" id="file" accept=".json,.jsonl">
+                            <p style="color: #8a93a2; font-size: 12px; margin-top: 5px;">Supports Alpaca, ShareGPT, and Q&A formats</p>
+                        </div>
+                        <div class="form-group">
+                            <label for="thinking_temperature">Thinking Temperature: <span id="thinking-temp-value">0.7</span></label>
+                            <div class="slider-group">
+                                <input type="range" id="thinking_temperature" min="0" max="1" step="0.01" value="0.7" oninput="document.getElementById('thinking-temp-value').textContent = this.value">
+                                <div class="slider-labels">
+                                    <span>Focused</span>
+                                    <span>Creative</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="response_temperature">Response Temperature: <span id="response-temp-value">0.7</span></label>
+                            <div class="slider-group">
+                                <input type="range" id="response_temperature" min="0" max="1" step="0.01" value="0.7" oninput="document.getElementById('response-temp-value').textContent = this.value">
+                                <div class="slider-labels">
+                                    <span>Precise</span>
+                                    <span>Expressive</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Save Interval</label>
+                            <input type="number" id="save_interval" value="50">
+                        </div>
+                    `;
+                    formHTML += await buildPersonaSelector();
+                    newConfigContent.innerHTML = formHTML;
+                    break;
             }
 
             // Add event listeners for validation
@@ -1580,6 +1627,10 @@
                     const reformatFile = document.getElementById('file').files;
                     isValid = config.dataset_name && reformatFile && reformatFile.length > 0;
                     break;
+                case 'datathink':
+                    const thinkFile = document.getElementById('file').files;
+                    isValid = config.dataset_name && thinkFile && thinkFile.length > 0;
+                    break;
                 default:
                     isValid = false;
             }
@@ -1750,6 +1801,27 @@
                     formData.append('llm_settings', JSON.stringify(config.llm_settings));
 
                     response = await fetch(`/api/jobs/reformat`, {
+                        method: 'POST',
+                        body: formData
+                    });
+                } else if (currentTool.id === 'datathink') {
+                    const formData = new FormData();
+                    const file = document.getElementById('file').files[0];
+
+                    if (!file) {
+                        alert('Please select a file to upload.');
+                        return;
+                    }
+                    formData.append('file', file);
+                    formData.append('dataset_name', config.dataset_name);
+                    formData.append('save_interval', config.save_interval);
+                    formData.append('thinking_temperature', config.thinking_temperature);
+                    formData.append('response_temperature', config.response_temperature);
+                    formData.append('use_persona', config.use_persona);
+                    formData.append('persona_name', config.persona_name || '');
+                    formData.append('llm_settings', JSON.stringify(config.llm_settings));
+
+                    response = await fetch(`/api/jobs/datathink`, {
                         method: 'POST',
                         body: formData
                     });
