@@ -4,6 +4,7 @@ DataMix - Mix and sample datasets from HuggingFace into a unified format.
 """
 
 import os
+import json
 from datetime import datetime
 from datasets import load_dataset
 from datacore.config.settings import config, get_tool_output_path
@@ -11,42 +12,60 @@ from datacore.io.json_ops import save_json
 from datacore.io.formats import to_alpaca
 
 # ============================================================================
-# CONFIGURATION
+# LOAD CONFIGURATION
 # ============================================================================
 
-# Total samples to generate
-TOTAL_SAMPLES = 10_000
-
-# Dataset name for output file
-DATASET_NAME = "mixed-dataset"
+# Try to load from config.json (webapp mode) or use defaults
+if os.path.exists("config.json"):
+    with open("config.json", 'r') as f:
+        job_config = json.load(f)
+    
+    TOTAL_SAMPLES = job_config.get("total_samples", 10000)
+    DATASET_NAME = job_config.get("dataset_name", "mixed-dataset")
+    SEED = job_config.get("seed", 310576)
+    MIN_INSTRUCTION_LENGTH = job_config.get("min_instruction_length", 10)
+    MAX_INSTRUCTION_LENGTH = job_config.get("max_instruction_length", 4000)
+    MIN_OUTPUT_LENGTH = job_config.get("min_output_length", 10)
+    MAX_OUTPUT_LENGTH = job_config.get("max_output_length", 4000)
+    
+    # Convert dataset_sources from dict format to tuple format
+    DATASET_SOURCES = [
+        (ds["name"], ds["weight"], ds.get("subset"))
+        for ds in job_config.get("dataset_sources", [])
+    ]
+    
+    # Format mappings if specified
+    DATASET_FORMATS = {}
+    for ds in job_config.get("dataset_sources", []):
+        if ds.get("format") and ds["format"] != "auto":
+            DATASET_FORMATS[ds["name"]] = ds["format"]
+else:
+    # Default configuration for standalone use
+    TOTAL_SAMPLES = 10_000
+    DATASET_NAME = "mixed-dataset"
+    SEED = 310576
+    MIN_INSTRUCTION_LENGTH = 10
+    MAX_INSTRUCTION_LENGTH = 4000
+    MIN_OUTPUT_LENGTH = 10
+    MAX_OUTPUT_LENGTH = 4000
+    
+    DATASET_SOURCES = [
+        # Example datasets - edit these for your needs
+        ("theprint/databird-sensible", 0.09, None),
+        ("theprint/databird-negotiation", 0.10, None),
+        ("theprint/databird-power", 0.09, None),
+        # Add more datasets here...
+    ]
+    
+    DATASET_FORMATS = {}
 
 # HuggingFace token (if needed for private datasets)
 HF_TOKEN = os.getenv("HF_TOKEN", None)
 
-# Random seed for reproducibility
-SEED = 310576
-
 # Output settings
 OUTPUT_PATH = "." # Save files to the current job directory
-DATASET_SOURCES = [
-    # Example datasets - edit these for your needs
-    ("theprint/databird-sensible", 0.09, None),
-    ("theprint/databird-negotiation", 0.10, None),
-    ("theprint/databird-power", 0.09, None),
-    # Add more datasets here...
-]
-
-# Format mappings for each dataset
-# Most common formats are auto-detected, but you can specify if needed
-# Format: {dataset_name: format_type}
-# Common formats: "alpaca", "sharegpt", "qa", "instruction_response"
-DATASET_FORMATS = {
-    # Leave empty for auto-detection
-    # "dataset_name": "alpaca",
-}
 
 # Field mappings for custom formats
-# Format: {dataset_name: {"instruction_key": "prompt", "output_key": "response"}}
 CUSTOM_MAPPINGS = {
     # Example:
     # "some_dataset": {
@@ -56,15 +75,10 @@ CUSTOM_MAPPINGS = {
     # }
 }
 
-# Quality filters
-MIN_INSTRUCTION_LENGTH = 10
-MAX_INSTRUCTION_LENGTH = 4000
-MIN_OUTPUT_LENGTH = 10
-MAX_OUTPUT_LENGTH = 4000
-
 # ============================================================================
 # END CONFIGURATION
 # ============================================================================
+
 
 
 def detect_format(entry):
