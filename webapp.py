@@ -14,7 +14,7 @@ import os
 import shutil
 import zipfile
 from datetime import datetime
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Tuple
 import asyncio
 from pathlib import Path
 
@@ -51,6 +51,7 @@ class DataBirdConfig(BaseModel):
     full_auto: bool = True
     dataset_size: str = "small"
     clean_score: float = 0.76
+    manual_perspectives: Optional[List] = None
     llm_settings: Optional[LLMSettings] = None
 
 class DataWriterConfig(BaseModel):
@@ -198,8 +199,9 @@ async def run_tool_subprocess(tool_name: str, job_id: str, config: dict):
                 line_text = line.decode(errors='ignore').strip()
 
                 progress_patterns = {
+                    # match either Question X/Y or Answer X/Y for databird
                     'datapersona': r"Entry (\d+) of (\d+)",
-                    'databird': r"Question (\d+)/(\d+)",
+                    'databird': r"(?:Question|Answer) (\d+)/(\d+)",
                     'datawriter': r"Generating document (\d+) of (\d+)",
                     'dataqa': r"Progress: (\d+)/(\d+)",
                     'datamix': r"Taking (\d+) of (\d+) entries",

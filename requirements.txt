@@ -5,6 +5,7 @@ python-multipart
 aiofiles
 requests
 scikit-learn
+datasets
 numpy
 emoji
 bs4

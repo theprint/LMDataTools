@@ -10,10 +10,12 @@ Pipeline:
 """
 
 import os
+import re
 import math
 import time
 import random
 import json
+import ast
 from datacore.llm.client import LLMClient
 from datacore.config.settings import config, get_tool_output_path
 from datacore.io.json_ops import save_json, load_json
@@ -66,6 +68,33 @@ if os.path.exists(config_file):
         # Case-insensitive update to match the working pattern
         for key, value in user_config.items():
             DEFAULT_CONFIG[key.upper()] = value
+
+# Normalize MANUAL_PERSPECTIVES in DEFAULT_CONFIG so downstream code always sees a list of strings.
+_mp = DEFAULT_CONFIG.get("MANUAL_PERSPECTIVES")
+if isinstance(_mp, str):
+    # try JSON first, then fall back to line-separated or literal-eval tuples
+    try:
+        parsed = json.loads(_mp)
+        DEFAULT_CONFIG["MANUAL_PERSPECTIVES"] = parsed
+    except Exception:
+        lines = [l.strip() for l in _mp.splitlines() if l.strip()]
+        parsed = []
+        for line in lines:
+            try:
+                parsed_item = ast.literal_eval(line)
+            except Exception:
+                parsed_item = line.strip('"').strip("'")
+            parsed.append(parsed_item)
+        DEFAULT_CONFIG["MANUAL_PERSPECTIVES"] = parsed
+
+if isinstance(DEFAULT_CONFIG.get("MANUAL_PERSPECTIVES"), (list, tuple)):
+    normalized = []
+    for item in DEFAULT_CONFIG["MANUAL_PERSPECTIVES"]:
+        if isinstance(item, (list, tuple)) and len(item) >= 2:
+            normalized.append(f"{item[0]} {item[1]}")
+        else:
+            normalized.append(str(item))
+    DEFAULT_CONFIG["MANUAL_PERSPECTIVES"] = normalized
 
 # Apply configuration
 DATASET_NAME = DEFAULT_CONFIG["DATASET_NAME"]
@@ -194,16 +223,21 @@ def generate_perspectives(client, topics):
 def generate_questions(client, topics, perspectives):
     """Generate questions from topics and perspectives."""
     questions = []
-    
+
+    # compute expected total number of questions so we can emit progress (Question X/Y)
+    per_topic = min(10, len(DESCRIPTORS))
+    total_expected = len(perspectives) * len(topics) * per_topic if perspectives and topics else 0
+    q_counter = 0
+
     for asker in perspectives:
-        print(f"\nGenerating questions from perspective: {asker}")
+         print(f"\nGenerating questions from perspective: {asker}")
         
-        for topic in topics:
-            # Select 10 random descriptors for this topic
-            ten_chosen = random.sample(DESCRIPTORS, min(10, len(DESCRIPTORS)))
-            print(f"  10 questions about {topic}:")
-            
-            for descriptor in ten_chosen:
+         for topic in topics:
+             # Select 10 random descriptors for this topic
+             ten_chosen = random.sample(DESCRIPTORS, min(10, len(DESCRIPTORS)))
+             print(f"  10 questions about {topic}:")
+             
+             for descriptor in ten_chosen:
                 pre_prompt = (
                     f"Your task is to create a straightforward question that a user might ask a large language model. "
                     f"Begin your question with one of: where, why, when, who, what, how or please - and with that in mind: "
@@ -228,6 +262,9 @@ def generate_questions(client, topics, perspectives):
                         "question": question
                     }
                     questions.append(item)
+                    q_counter += 1
+                    # Emit progress line that the backend will parse
+                    print(f"Question {q_counter}/{total_expected}", flush=True)
                     print(f"    {len(questions)}: {question}")
     
     return questions
@@ -256,6 +293,7 @@ def evaluate_question(client, question, asker, topic):
         "\nExample 4 represents a high score: 0.7867 "
         "\nExample 5 represents a very high score: 0.9738"
         f"\n\nQuestion: {question}"
+        "\n\nRespond with your score now: "
     )
     
     tries = 0
@@ -263,16 +301,16 @@ def evaluate_question(client, question, asker, topic):
         raw_score = client.call(
             prompt=eval_prompt,
             temperature=0.5,
-            max_tokens=200,
+            max_tokens=100,
         )
         
-        try:
-            score = float(raw_score.strip())
-            return score
-        except:
-            tries += 1
-            print(f"  - Error on attempt {tries}/3: '{raw_score}' is not a float")
-    
+        score = re.match(r'^[01]\.\d+$', raw_score.strip())
+        if score:
+            return float(score.group())
+        
+        tries += 1
+        print(f"  - Error on attempt {tries}/3: '{raw_score}' is not a valid float (0.x - 1.0)")
+
     print(f"  - Giving up. No score generated, assigning -1")
     return -1.0
 
@@ -355,6 +393,8 @@ def generate_answers(client, questions, answer_style, step_call, use_persona, pe
         )
         
         item["answer"] = answer
+        # Emit answer progress line the backend will parse
+        print(f"Answer {i+1}/{len(questions)}", flush=True)
         print(f"    Answer: {answer[:60]}...")
     
     return questions

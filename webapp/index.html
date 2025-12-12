@@ -1103,10 +1103,18 @@
                         </div>
                         <div class="form-group">
                             <div class="checkbox-group">
-                                <input type="checkbox" id="full_auto" checked>
+                                <input type="checkbox" id="full_auto" checked onchange="toggleDataBirdPerspectives()">
                                 <label>Auto-generate perspectives</label>
                             </div>
                         </div>
+
+                        <!-- Manual perspectives group (hidden when auto is enabled) -->
+                        <div class="form-group" id="databird_manual_perspectives_group" style="display: none;">
+                            <label>Manual Perspectives (one per line)</label>
+                            <textarea id="manual_perspectives" rows="4" placeholder='("someone", "learning about baking")\n("a home baker", "trying to improve")'></textarea>
+                            <p style="color: #8a93a2; font-size: 12px; margin-top: 5px;">Format: ("who", "what they are doing")</p>
+                        </div>
+
                         <div class="form-group">
                             <label>Dataset Size</label>
                             <select id="dataset_size">
@@ -1122,6 +1130,16 @@
                     `;
                     formHTML += await buildPersonaSelector();
                     newConfigContent.innerHTML = formHTML;
+
+                    // Toggle handler for DataBird manual perspectives
+                    window.toggleDataBirdPerspectives = () => {
+                        const autoCheckbox = document.getElementById('full_auto');
+                        const manualGroup = document.getElementById('databird_manual_perspectives_group');
+                        if (!manualGroup || !autoCheckbox) return;
+                        manualGroup.style.display = autoCheckbox.checked ? 'none' : 'block';
+                    };
+                    // Ensure initial visibility matches the checkbox state
+                    window.toggleDataBirdPerspectives();
                     break;
                 
                 case 'datawriter':
@@ -1248,65 +1266,139 @@
                     break;
                 
                 case 'datamix':
-                formHTML += `
-                    <div class="form-group">
-                        <label>Dataset Name</label>
-                        <input type="text" id="dataset_name" value="mixed-dataset">
-                    </div>
-                    <div class="form-group">
-                        <label>Total Samples</label>
-                        <input type="number" id="total_samples" value="10000">
-                    </div>
-                    <div class="form-group">
-                        <label>Random Seed (for reproducibility)</label>
-                        <input type="number" id="seed" value="310576">
-                    </div>
-                    
-                    <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid rgba(0, 212, 255, 0.1);">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                            <h3 style="color: #00d4ff; font-size: 16px; margin: 0;">Dataset Sources</h3>
-                            <button type="button" class="btn-small" style="background: #00d4ff; color: #0a0e27;" onclick="addDatasetRow()">+ Add Dataset</button>
+                    // Default values for sliders
+                    const defaultMinInstruction = 10;
+                    const defaultMaxInstruction = 4000;
+                    const defaultMinOutput = 10;
+                    const defaultMaxOutput = 4000;
+
+                    formHTML += `
+                        <div class="form-group">
+                            <label>Dataset Name</label>
+                            <input type="text" id="dataset_name" value="mixed-dataset">
+                        </div>
+                        <div class="form-group">
+                            <label>Total Samples</label>
+                            <input type="number" id="total_samples" value="10000">
+                        </div>
+                        <div class="form-group">
+                            <label>Random Seed (for reproducibility)</label>
+                            <input type="number" id="seed" value="310576">
                         </div>
                         
-                        <div id="weight-total-display" style="padding: 10px; background: #1a1f3a; border-radius: 6px; margin-bottom: 15px; text-align: center; font-size: 14px; color: #8a93a2;">
-                            Total Weight: <span id="weight-total" style="color: #00d4ff; font-weight: 600;">0.00</span> / 1.00
+                        <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid rgba(0, 212, 255, 0.1);">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                                <h3 style="color: #00d4ff; font-size: 16px; margin: 0;">Dataset Sources</h3>
+                                <button type="button" class="btn-small" style="background: #00d4ff; color: #0a0e27;" onclick="addDatasetRow()">+ Add Dataset</button>
+                            </div>
+                            
+                            <div id="weight-total-display" style="padding: 10px; background: #1a1f3a; border-radius: 6px; margin-bottom: 15px; text-align: center; font-size: 14px; color: #8a93a2;">
+                                Total Weight: <span id="weight-total" style="color: #00d4ff; font-weight: 600;">0.00</span> / 1.00
+                            </div>
+                            
+                            <div id="datasets-container">
+                                <!-- Dataset rows will be added here -->
+                            </div>
                         </div>
                         
-                        <div id="datasets-container">
-                            <!-- Dataset rows will be added here -->
+                        <div class="form-group" style="margin-top: 20px;">
+                            <label>Quality Filters</label>
+                            
+                            <div style="margin-top: 15px;">
+                                <label for="instruction-length-slider">Instruction Length: <span id="instruction-length-value">${defaultMinInstruction} - ${defaultMaxInstruction}</span></label>
+                                <div id="instruction-length-slider" style="margin-top: 10px;"></div>
+                                <input type="hidden" id="min_instruction_length" value="${defaultMinInstruction}">
+                                <input type="hidden" id="max_instruction_length" value="${defaultMaxInstruction}">
+                            </div>
+                            
+                            <div style="margin-top: 25px;">
+                                <label for="output-length-slider">Output Length: <span id="output-length-value">${defaultMinOutput} - ${defaultMaxOutput}</span></label>
+                                <div id="output-length-slider" style="margin-top: 10px;"></div>
+                                <input type="hidden" id="min_output_length" value="${defaultMinOutput}">
+                                <input type="hidden" id="max_output_length" value="${defaultMaxOutput}">
+                            </div>
                         </div>
-                    </div>
+                    `;
+                    newConfigContent.innerHTML = formHTML;
                     
-                    <div class="form-group" style="margin-top: 20px;">
-                        <label>Quality Filters</label>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
-                            <div>
-                                <label style="font-size: 12px; color: #8a93a2;">Min Instruction Length</label>
-                                <input type="number" id="min_instruction_length" value="10" style="padding: 6px;">
-                            </div>
-                            <div>
-                                <label style="font-size: 12px; color: #8a93a2;">Max Instruction Length</label>
-                                <input type="number" id="max_instruction_length" value="4000" style="padding: 6px;">
-                            </div>
-                            <div>
-                                <label style="font-size: 12px; color: #8a93a2;">Min Output Length</label>
-                                <input type="number" id="min_output_length" value="10" style="padding: 6px;">
-                            </div>
-                            <div>
-                                <label style="font-size: 12px; color: #8a93a2;">Max Output Length</label>
-                                <input type="number" id="max_output_length" value="4000" style="padding: 6px;">
-                            </div>
-                        </div>
-                    </div>
-                `;
-                newConfigContent.innerHTML = formHTML;
-                
-                // Initialize with one dataset row
-                window.datasetRowCounter = 0;
-                addDatasetRow();
-                
-                validateForm();
-                break;
+                    // Initialize instruction length slider
+                    const instructionSlider = document.getElementById('instruction-length-slider');
+                    const minInstructionInput = document.getElementById('min_instruction_length');
+                    const maxInstructionInput = document.getElementById('max_instruction_length');
+                    const instructionValue = document.getElementById('instruction-length-value');
+
+                    noUiSlider.create(instructionSlider, {
+                        start: [defaultMinInstruction, defaultMaxInstruction],
+                        connect: true,
+                        step: 10,
+                        range: {
+                            'min': 10,
+                            'max': 10000
+                        },
+                        behaviour: 'drag',
+                        format: {
+                            to: function (value) {
+                                return Math.round(value);
+                            },
+                            from: function (value) {
+                                return Math.round(value);
+                            }
+                        }
+                    });
+
+                    instructionSlider.noUiSlider.on('update', function (values, handle) {
+                        const [min, max] = values;
+                        minInstructionInput.value = min;
+                        maxInstructionInput.value = max;
+                        instructionValue.textContent = `${min} - ${max}`;
+                    });
+
+                    instructionSlider.noUiSlider.on('change', function (values, handle) {
+                        validateForm();
+                    });
+
+                    // Initialize output length slider
+                    const outputSlider = document.getElementById('output-length-slider');
+                    const minOutputInput = document.getElementById('min_output_length');
+                    const maxOutputInput = document.getElementById('max_output_length');
+                    const outputValue = document.getElementById('output-length-value');
+
+                    noUiSlider.create(outputSlider, {
+                        start: [defaultMinOutput, defaultMaxOutput],
+                        connect: true,
+                        step: 10,
+                        range: {
+                            'min': 10,
+                            'max': 10000
+                        },
+                        behaviour: 'drag',
+                        format: {
+                            to: function (value) {
+                                return Math.round(value);
+                            },
+                            from: function (value) {
+                                return Math.round(value);
+                            }
+                        }
+                    });
+
+                    outputSlider.noUiSlider.on('update', function (values, handle) {
+                        const [min, max] = values;
+                        minOutputInput.value = min;
+                        maxOutputInput.value = max;
+                        outputValue.textContent = `${min} - ${max}`;
+                    });
+
+                    outputSlider.noUiSlider.on('change', function (values, handle) {
+                        validateForm();
+                    });
+                    
+                    // Initialize with one dataset row
+                    window.datasetRowCounter = 0;
+                    addDatasetRow();
+                    
+                    validateForm();
+                    break;
                 case 'dataconvo':
                     formHTML += `
                         <div class="form-group">
@@ -1544,9 +1636,6 @@
                             <label for="persona_name">Choose Persona</label>
                             <select id="persona_name" onchange="updateGenericPersonaDescription()">${personaOptions}</select>
                         </div>
-                        <div id="generic-persona-description" style="color: #8a93a2; font-size: 13px; margin-top: 10px; padding: 10px; border: 1px solid rgba(0, 212, 255, 0.1); border-radius: 4px; background: #1a1f3a;">
-                            Select a persona to see its description.
-                        </div>
                     </div>
                 `;
             } catch (error) {
@@ -1680,6 +1769,109 @@
 
             startJobBtn.disabled = !isValid;
         }
+
+        // Add these functions right after the validateForm() function (around line 800):
+
+        // DataMix helper functions
+        window.addDatasetRow = function() {
+            const container = document.getElementById('datasets-container');
+            if (!container) return;
+            
+            const rowId = window.datasetRowCounter++;
+            
+            const rowHTML = `
+                <div class="dataset-row" id="dataset-row-${rowId}" style="background: #1e2742; border-radius: 8px; padding: 15px; margin-bottom: 12px; border: 2px solid rgba(0, 212, 255, 0.1); transition: all 0.2s;">
+                    <div style="display: grid; grid-template-columns: 2fr 1fr 1.5fr 1fr auto; gap: 10px; align-items: end;">
+                        <div>
+                            <label style="display: block; margin-bottom: 6px; font-weight: 500; color: #c4cdd5; font-size: 12px;">Dataset Name</label>
+                            <input type="text" class="dataset-name" placeholder="username/dataset-name" style="width: 100%; padding: 10px 12px; border: 2px solid rgba(0, 212, 255, 0.2); border-radius: 6px; font-size: 14px; transition: all 0.2s; font-family: inherit; background: #252d47; color: #e4e7eb;">
+                        </div>
+                        <div>
+                            <label style="display: block; margin-bottom: 6px; font-weight: 500; color: #c4cdd5; font-size: 12px;">Weight</label>
+                            <input type="number" class="dataset-weight" step="0.01" min="0" max="1" value="0.10" onchange="updateWeightTotal()" style="width: 100%; padding: 10px 12px; border: 2px solid rgba(0, 212, 255, 0.2); border-radius: 6px; font-size: 14px; transition: all 0.2s; font-family: inherit; background: #252d47; color: #e4e7eb;">
+                        </div>
+                        <div>
+                            <label style="display: block; margin-bottom: 6px; font-weight: 500; color: #c4cdd5; font-size: 12px;">Subset (optional)</label>
+                            <input type="text" class="dataset-subset" placeholder="train, test, etc." style="width: 100%; padding: 10px 12px; border: 2px solid rgba(0, 212, 255, 0.2); border-radius: 6px; font-size: 14px; transition: all 0.2s; font-family: inherit; background: #252d47; color: #e4e7eb;">
+                        </div>
+                        <div>
+                            <label style="display: block; margin-bottom: 6px; font-weight: 500; color: #c4cdd5; font-size: 12px;">Format</label>
+                            <select class="dataset-format" style="width: 100%; padding: 10px 12px; border: 2px solid rgba(0, 212, 255, 0.2); border-radius: 6px; font-size: 14px; transition: all 0.2s; font-family: inherit; background: #252d47; color: #e4e7eb; cursor: pointer;">
+                                <option value="auto">Auto-detect</option>
+                                <option value="alpaca">Alpaca</option>
+                                <option value="sharegpt">ShareGPT</option>
+                                <option value="qa">Q&A</option>
+                            </select>
+                        </div>
+                        <div>
+                            <button type="button" class="btn-small btn-delete" onclick="removeDatasetRow(${rowId})" style="margin: 0;">Remove</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            container.insertAdjacentHTML('beforeend', rowHTML);
+            
+            // Add focus styles to the newly added inputs
+            const newRow = document.getElementById(`dataset-row-${rowId}`);
+            newRow.querySelectorAll('input, select').forEach(input => {
+                input.addEventListener('focus', function() {
+                    this.style.borderColor = '#00d4ff';
+                    this.style.background = '#2a3447';
+                    this.style.boxShadow = '0 0 0 3px rgba(0, 212, 255, 0.1)';
+                });
+                input.addEventListener('blur', function() {
+                    this.style.borderColor = 'rgba(0, 212, 255, 0.2)';
+                    this.style.background = '#252d47';
+                    this.style.boxShadow = 'none';
+                });
+                input.addEventListener('input', validateForm);
+                input.addEventListener('change', validateForm);
+            });
+            
+            // Add hover effect to row
+            newRow.addEventListener('mouseenter', function() {
+                this.style.borderColor = 'rgba(0, 212, 255, 0.3)';
+                this.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.3)';
+            });
+            newRow.addEventListener('mouseleave', function() {
+                this.style.borderColor = 'rgba(0, 212, 255, 0.1)';
+                this.style.boxShadow = 'none';
+            });
+            
+            updateWeightTotal();
+            validateForm();
+        };
+
+        window.removeDatasetRow = function(rowId) {
+            const row = document.getElementById(`dataset-row-${rowId}`);
+            if (row) {
+                row.remove();
+                updateWeightTotal();
+                validateForm();
+            }
+        };
+
+        window.updateWeightTotal = function() {
+            const weights = Array.from(document.querySelectorAll('.dataset-weight'))
+                .map(input => parseFloat(input.value) || 0);
+            
+            const total = weights.reduce((sum, w) => sum + w, 0);
+            const totalDisplay = document.getElementById('weight-total');
+            
+            if (totalDisplay) {
+                totalDisplay.textContent = total.toFixed(2);
+                
+                // Color code based on whether total is close to 1.0
+                if (Math.abs(total - 1.0) < 0.01) {
+                    totalDisplay.style.color = '#00ff88'; // Green
+                } else if (Math.abs(total - 1.0) < 0.1) {
+                    totalDisplay.style.color = '#ffd93d'; // Yellow
+                } else {
+                    totalDisplay.style.color = '#ff4757'; // Red
+                }
+            }
+        };
         
         // Collect config from form
         function getConfig() {
@@ -1702,6 +1894,7 @@
                 }
                 return { "rounds_1": Math.round(r1), "rounds_2": Math.round(r2), "rounds_3": Math.round(r3) };
             }
+            
             const config = {};
             const configSection = document.querySelector('.config-section');
             
@@ -1747,6 +1940,31 @@
                 config['persona_name'] = configSection.querySelector('#persona_name').value;
             }
 
+            // Special handling for DataMix - collect dataset sources
+            if (currentTool && currentTool.id === 'datamix') {
+                const datasetRows = document.querySelectorAll('.dataset-row');
+                const dataset_sources = [];
+                
+                datasetRows.forEach(row => {
+                    const name = row.querySelector('.dataset-name').value.trim();
+                    const weight = parseFloat(row.querySelector('.dataset-weight').value) || 0;
+                    const subset = row.querySelector('.dataset-subset').value.trim() || null;
+                    const format = row.querySelector('.dataset-format').value;
+                    
+                    if (name && weight > 0) {
+                        dataset_sources.push({
+                            name: name,
+                            weight: weight,
+                            subset: subset,
+                            format: format === 'auto' ? null : format
+                        });
+                    }
+                });
+                
+                config['dataset_sources'] = dataset_sources;
+            }
+
+            // Add LLM settings
             const settings = JSON.parse(localStorage.getItem('allSettings')) || {
                 providers: {
                     openai: { base_url: 'https://api.openai.com/v1', api_key: '', llm_model: ''},
@@ -1769,7 +1987,6 @@
             
             return config;
         }
-        
         // Start a job
         async function startJob() {
             if (!currentTool) {
@@ -1877,8 +2094,37 @@
                 }
 
                 if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+                    let errorMessage = `HTTP error! status: ${response.status}`;
+                    try {
+                        const errorData = await response.json();
+                        console.error('Full error response:', errorData);
+                        
+                        // Handle Pydantic validation errors
+                        if (errorData.detail) {
+                            if (Array.isArray(errorData.detail)) {
+                                // Pydantic validation errors are arrays
+                                errorMessage = errorData.detail.map(err => {
+                                    const location = err.loc ? err.loc.join('.') : 'unknown';
+                                    return `${location}: ${err.msg}`;
+                                }).join('\n');
+                            } else if (typeof errorData.detail === 'string') {
+                                errorMessage = errorData.detail;
+                            } else {
+                                errorMessage = JSON.stringify(errorData.detail, null, 2);
+                            }
+                        } else {
+                            errorMessage = JSON.stringify(errorData, null, 2);
+                        }
+                    } catch (e) {
+                        console.error('Failed to parse error:', e);
+                        try {
+                            const errorText = await response.text();
+                            errorMessage = errorText || errorMessage;
+                        } catch (e2) {
+                            console.error('Could not get error text');
+                        }
+                    }
+                    throw new Error(errorMessage);
                 }
                 
                 const data = await response.json();
