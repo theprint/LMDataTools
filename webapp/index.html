@@ -1233,7 +1233,14 @@
                         </div>
                         <div class="form-group">
                             <label>Source URLs (one per line)</label>
-                            <textarea id="source_urls" rows="5" placeholder="https://example.com/page1\nhttps://example.com/page2"></textarea>
+                            <textarea id="sources" rows="3" placeholder="https://example.com/page1 \nhttps://example.com/page2"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>OR Upload Local Files</label>
+                            <input type="file" id="files" multiple accept=".txt,.html,.htm,.md">
+                            <p style="color: #8a93a2; font-size: 12px; margin-top: 5px;">
+                                Upload local files here instead of using file paths. You can select multiple files.
+                            </p>
                         </div>
                         <div class="form-group">
                             <div class="checkbox-group">
@@ -1253,6 +1260,12 @@
                     `;
                     formHTML += await buildPersonaSelector();
                     newConfigContent.innerHTML = formHTML;
+
+                    const fileInput = newConfigContent.querySelector('#files');
+                    if (fileInput) {
+                        fileInput.addEventListener('change', validateForm);
+}
+
                     // Add the toggle function to the window scope
                     window.toggleDataQAPerspectives = () => {
                         const autoPerspectivesCheckbox = document.getElementById('auto_perspectives');
@@ -1730,24 +1743,29 @@
                     isValid = config.dataset_name && config.topics && config.topics.length > 0;
                     break;
                 case 'datapersona':
-                    const files = document.getElementById('files').files;
-                    isValid = config.dataset_name && files && files.length > 0;
+                    const dp_files = document.getElementById('files').dp_files;
+                    isValid = config.dataset_name && dp_files && dp_files.length > 0;
                     break;
                 case 'dataqa':
-                    isValid = config.dataset_name && config.source_urls && config.source_urls.length > 0;
+                    const files = document.getElementById('files')?.files;
+                    const hasFiles = files && files.length > 0;
+                    const hasSources = config.sources && config.sources.length > 0;
+                    
+                    isValid = config.dataset_name && (hasSources || hasFiles);
+                    
                     if (!config.auto_perspectives) {
                         isValid = isValid && config.manual_perspectives && config.manual_perspectives.length > 0;
                     }
                     break;
                 case 'datawriter':
-                // Validate min < max for datawriter (parse as numbers!)
-                const minTokens = parseFloat(config.min_tokens);
-                const maxTokens = parseFloat(config.max_tokens);
-                if (isNaN(minTokens) || isNaN(maxTokens) || minTokens >= maxTokens) {
-                    isValid = false;
-                }
-                isValid = isValid && config.dataset_name && config.document_count > 0;
-                break;
+                    // Validate min < max for datawriter (parse as numbers!)
+                    const minTokens = parseFloat(config.min_tokens);
+                    const maxTokens = parseFloat(config.max_tokens);
+                    if (isNaN(minTokens) || isNaN(maxTokens) || minTokens >= maxTokens) {
+                        isValid = false;
+                    }
+                    isValid = isValid && config.dataset_name && config.document_count > 0;
+                    break;
                 case 'datamix':
                     isValid = config.dataset_name && config.total_samples > 0;
                     break;
@@ -2026,6 +2044,29 @@
                         method: 'POST',
                         body: formData
                         // No 'Content-Type' header for multipart/form-data, browser sets it
+                    });
+                } else if (currentTool.id === 'dataqa') {
+                    const formData = new FormData();
+                    const files = document.getElementById('files')?.files || [];
+
+                    // Add files if any
+                    for (const file of files) {
+                        formData.append('files', file);
+                    }
+
+                    // Append other form fields
+                    formData.append('dataset_name', config.dataset_name);
+                    formData.append('sources', (config.sources || []).join('\n'));
+                    formData.append('auto_perspectives', config.auto_perspectives || true);
+                    formData.append('confidence_threshold', config.confidence_threshold || 0.68);
+                    formData.append('use_persona', config.use_persona || false);
+                    formData.append('persona_name', config.persona_name || '');
+                    formData.append('manual_perspectives', config.manual_perspectives ? JSON.stringify(config.manual_perspectives) : '');
+                    formData.append('llm_settings', JSON.stringify(config.llm_settings));
+
+                    response = await fetch(`/api/jobs/dataqa`, {
+                        method: 'POST',
+                        body: formData
                     });
                 } else if (currentTool.id === 'dataconvo') {
                     const formData = new FormData();

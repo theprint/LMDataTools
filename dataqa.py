@@ -20,12 +20,79 @@ from datacore.cleaning.validation import (
 )
 
 # ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+def is_url(source: str) -> bool:
+    """Check if source is a URL or file path."""
+    return source.strip().startswith(('http://', 'https://'))
+
+
+def read_file_content(file_path: str) -> str:
+    """Read content from a local file."""
+    from pathlib import Path
+    
+    # Strip quotes if present
+    file_path = file_path.strip().strip('"').strip("'")
+    
+    print(f"  Reading file: {file_path}")
+    print(f"  Debug - Received path: '{file_path}'")
+    print(f"  Debug - Path length: {len(file_path)}")
+    
+    try:
+        path = Path(file_path)
+        print(f"  Debug - Resolved path: '{path}'")
+        print(f"  Debug - Path exists: {path.exists()}")
+        print(f"  Debug - Is absolute: {path.is_absolute()}")
+        
+        if not path.exists():
+            print(f"  Error: File not found: {file_path}")
+            # Try to show what files ARE in the parent directory
+            parent = path.parent
+            if parent.exists():
+                print(f"  Debug - Parent directory exists: {parent}")
+                print(f"  Debug - Files in parent: {list(parent.iterdir())[:5]}")
+            return None
+        
+        # Read file based on extension
+        if path.suffix.lower() in ['.html', '.htm']:
+            with open(path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            cleaned = clean_html(content)
+        elif path.suffix.lower() in ['.txt', '.md']:
+            with open(path, 'r', encoding='utf-8') as f:
+                cleaned = f.read()
+        else:
+            # Try as text file
+            with open(path, 'r', encoding='utf-8') as f:
+                cleaned = f.read()
+        
+        print(f"  Extracted {len(cleaned.split())} words")
+        return cleaned
+        
+    except Exception as e:
+        print(f"  Error reading file: {e}")
+        print(f"  Error type: {type(e).__name__}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+def get_content(source: str) -> str:
+    """Get content from either URL or file path."""
+    if is_url(source):
+        return scrape_url(source)
+    else:
+        return read_file_content(source)
+
+
+# ============================================================================
 # CONFIGURATION
 # ============================================================================
 
 DEFAULT_CONFIG = {
     "DATASET_NAME": "my-qa-dataset",
-    "SOURCE_URLS": [],
+    "SOURCES": [],
     "MANUAL_PERSPECTIVES": [
         ("someone", "trying to understand the basics"),
         ("an expert", "looking for advanced insights"),
@@ -400,9 +467,9 @@ if __name__ == "__main__":
     all_keywords = [entry.get("keywords", []) for entry in all_qa_data]
 
     # Load sources
-    sources = DEFAULT_CONFIG.get("SOURCE_URLS", [])
+    sources = DEFAULT_CONFIG.get("SOURCES", [])
     if not sources:
-        print("No source URLs provided in the configuration. Exiting.")
+        print("No sources provided in the configuration. Exiting.")
         exit(1)
 
     print(f"Dataset: {DEFAULT_CONFIG['DATASET_NAME']}")
@@ -421,15 +488,15 @@ if __name__ == "__main__":
     total_pairs_added = 0
     
     try:
-        for source_idx, source_url in enumerate(sources):
+        for source_idx, source in enumerate(sources):  
             print(f"\n{'='*60}")
-            print(f"Processing: {source_url}")
+            print(f"Processing: {source}")  
             print('='*60)
             
-            # Scrape content
-            content = scrape_url(source_url)
+            # Get content (handles both URLs and files)
+            content = get_content(source)
             if not content:
-                print("  Skipping due to scrape error")
+                print("  Skipping due to error")
                 continue
             
             # Chunk content
@@ -438,29 +505,41 @@ if __name__ == "__main__":
             
             # Get perspectives
             if DEFAULT_CONFIG.get("AUTO_PERSPECTIVES", True):
-                # Extract topic from URL more robustly
-                from urllib.parse import urlparse
-                parsed = urlparse(source_url)
+                # Extract topic from source (URL or file path)
+                topic = None
                 
-                # Try path segments first (excluding empty strings)
-                path_parts = [p for p in parsed.path.split('/') if p]
-                
-                if path_parts:
-                    # Use last meaningful path segment
-                    topic = path_parts[-1]
-                    # Remove common file extensions
-                    topic = re.sub(r'\.(html?|php|asp|jsp)$', '', topic, flags=re.IGNORECASE)
+                if is_url(source):
+                    # Extract topic from URL
+                    from urllib.parse import urlparse
+                    parsed = urlparse(source)
+                    
+                    # Try path segments first (excluding empty strings)
+                    path_parts = [p for p in parsed.path.split('/') if p]
+                    
+                    if path_parts:
+                        # Use last meaningful path segment
+                        topic = path_parts[-1]
+                        # Remove common file extensions
+                        topic = re.sub(r'\.(html?|php|asp|jsp|txt|md)$', '', topic, flags=re.IGNORECASE)
+                        # Convert dashes/underscores to spaces
+                        topic = topic.replace('-', ' ').replace('_', ' ')
+                    else:
+                        # Fallback to domain name if path is empty
+                        topic = parsed.netloc.replace('www.', '')
+                else:
+                    # Extract topic from file path
+                    from pathlib import Path
+                    path = Path(source)
+                    # Use filename without extension
+                    topic = path.stem
                     # Convert dashes/underscores to spaces
                     topic = topic.replace('-', ' ').replace('_', ' ')
-                else:
-                    # Fallback to domain name if path is empty
-                    topic = parsed.netloc.replace('www.', '')
                 
                 # Final cleanup
-                topic = topic.strip()
+                topic = topic.strip() if topic else None
                 
                 if not topic:
-                    print(f"  Warning: Could not extract topic from URL, using generic 'the content'")
+                    print(f"  Warning: Could not extract topic from source, using generic 'the content'")
                     topic = "the content"
                 
                 print(f"  Generating perspectives for: {topic}")
@@ -470,32 +549,31 @@ if __name__ == "__main__":
             
             print(f"  Using {len(perspectives)} perspectives")
             
-            # Accumulate Q&A pairs for all chunks of a single URL
-            all_pairs_for_url = []
-            pairs_count_before_url = len(all_qa_data)
+            # Accumulate Q&A pairs for all chunks of a single source
+            all_pairs_for_source = []
+            pairs_count_before_source = len(all_qa_data)
 
             # Generate Q&A for each chunk
             for chunk_idx, chunk in enumerate(chunks):
                 # Calculate progress for webapp monitoring
                 progress_for_this_chunk = ((chunk_idx + 1) / len(chunks)) * (1 / total_sources) * 100
-                progress_from_previous_urls = (source_idx / total_sources) * 100
-                total_progress = round(progress_from_previous_urls + progress_for_this_chunk)
+                progress_from_previous_sources = (source_idx / total_sources) * 100
+                total_progress = round(progress_from_previous_sources + progress_for_this_chunk)
                 
                 print(f"    Processing chunk {chunk_idx + 1}/{len(chunks)}... Progress: {total_progress}/100", flush=True)
                 
                 qa_pairs = generate_qa_for_chunk(client, chunk, perspectives)
                 print(f"      → Generated {len(qa_pairs)} pairs from this chunk")
                 
-                all_pairs_for_url.extend(qa_pairs)
+                all_pairs_for_source.extend(qa_pairs)
                 total_chunks_processed += 1
                 total_pairs_generated += len(qa_pairs)
                 
-                print(f"      → Accumulated total for URL: {len(all_pairs_for_url)} pairs from {chunk_idx + 1} chunks")
-
+                print(f"      → Accumulated total for source: {len(all_pairs_for_source)} pairs from {chunk_idx + 1} chunks")
             # Validate and score all pairs for the URL
-            print(f"\n  Validating {len(all_pairs_for_url)} pairs from {len(chunks)} chunks for {source_url}...")
+            print(f"\n  Validating {len(all_pairs_for_source)} pairs from {len(chunks)} chunks for {source}...")
             
-            for question, answer in all_pairs_for_url:
+            for question, answer in all_pairs_for_source:
                 total_pairs_validated += 1
                 
                 is_valid, reason = validate_qa_pair(question, answer)
@@ -519,7 +597,7 @@ if __name__ == "__main__":
                 entry = {
                     "question": question,
                     "answer": answer,
-                    "source": source_url,
+                    "source": source,
                     "confidence": confidence,
                     "keywords": keywords
                 }
@@ -535,8 +613,8 @@ if __name__ == "__main__":
                     save_checkpoint(all_qa_data, dataset_file)
                     qa_count_since_save = 0
             
-            pairs_added_for_url = len(all_qa_data) - pairs_count_before_url
-            print(f"\n  [URL COMPLETE] Added {pairs_added_for_url} pairs from {source_url} ({source_idx + 1}/{total_sources})")
+            pairs_added_for_source = len(all_qa_data) - pairs_count_before_source
+            print(f"\n  [SOURCE COMPLETE] Added {pairs_added_for_source} pairs from {source} ({source_idx + 1}/{total_sources})")
 
             # Save after each URL
             save_checkpoint(all_qa_data, dataset_file)

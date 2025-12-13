@@ -62,7 +62,7 @@ class DataWriterConfig(BaseModel):
 
 class DataQAConfig(BaseModel):
     dataset_name: str
-    source_urls: List[str] = []
+    sources: List[str] = []
     auto_perspectives: bool = True
     confidence_threshold: float = 0.68
     manual_perspectives: Optional[List[tuple]] = None
@@ -292,7 +292,7 @@ async def list_tools():
             {"id": "datapersona", "name": "DataPersona", "description": "Rewrite with personas"},
             {"id": "databird", "name": "DataBird", "description": "Procedural Q&A generation"},
             {"id": "datawriter", "name": "DataWriter", "description": "Generate documents"},
-            {"id": "dataqa", "name": "DataQA", "description": "Web scraping to Q&A"},
+            {"id": "dataqa", "name": "DataQA", "description": "Web/Document scraping to Q&A"},
             {"id": "datamix", "name": "DataMix", "description": "Mix HuggingFace datasets"},
             {"id": "dataconvo", "name": "DataConvo", "description": "Expand conversations"},
             {"id": "reformat", "name": "Reformat", "description": "Convert dataset formats"}
@@ -392,13 +392,57 @@ async def run_datawriter(config: DataWriterConfig, background_tasks: BackgroundT
     return {"job_id": job_id, "status": "starting"}
 
 @app.post("/api/jobs/dataqa")
-async def run_dataqa(config: DataQAConfig, background_tasks: BackgroundTasks):
+async def run_dataqa(
+    background_tasks: BackgroundTasks,
+    dataset_name: str = Form(...),
+    sources: str = Form(""),
+    auto_perspectives: bool = Form(True),
+    confidence_threshold: float = Form(0.68),
+    manual_perspectives: str = Form(""),
+    use_persona: bool = Form(False),
+    persona_name: Optional[str] = Form(None),
+    llm_settings: str = Form(...),
+    files: List[UploadFile] = File(default=[])
+):
     """Start DataQA job."""
     job_id = generate_job_id()
-    job_dir = create_job_workspace(job_id, "dataqa", config.dataset_name)
+    job_dir = create_job_workspace(job_id, "dataqa", dataset_name)
+    import_dir = os.path.join(job_dir, "import")
+    os.makedirs(import_dir, exist_ok=True)
 
-    config_dict = config.dict()
-    config_dict["job_id"] = job_id
+    # Save uploaded files
+    uploaded_file_paths = []
+    for file in files:
+        file_path = os.path.join(import_dir, file.filename)
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        # Add relative path for the config
+        uploaded_file_paths.append(f"import/{file.filename}")
+
+    # Parse sources from textarea
+    source_list = [s.strip() for s in sources.split('\n') if s.strip()]
+    
+    # Combine URLs and uploaded file paths
+    all_sources = source_list + uploaded_file_paths
+
+    config_dict = {
+        "dataset_name": dataset_name,
+        "sources": all_sources,
+        "auto_perspectives": auto_perspectives,
+        "confidence_threshold": confidence_threshold,
+        "use_persona": use_persona,
+        "persona_name": persona_name,
+        "job_id": job_id,
+        "llm_settings": json.loads(llm_settings)
+    }
+    
+    # Parse manual perspectives if provided
+    if manual_perspectives.strip():
+        try:
+            config_dict["manual_perspectives"] = json.loads(manual_perspectives)
+            config_dict["auto_perspectives"] = False
+        except:
+            pass
 
     background_tasks.add_task(run_tool_subprocess, "dataqa", job_id, config_dict)
     return {"job_id": job_id, "status": "starting"}
