@@ -1926,6 +1926,7 @@
                     config[id] = parseFloat(input.value);
                 } else if (id === 'dataset_size') {
                     const size = input.value;
+                    config['dataset_size'] = size;
                     config['extended_auto'] = (size === 'medium' || size === 'large');
                     config['extra_extended_auto'] = (size === 'large');
                 } else if (id === 'manual_perspectives') {

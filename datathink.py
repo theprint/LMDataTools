@@ -136,7 +136,7 @@ def extract_query_and_response(entry, format_type):
     return "", ""
 
 
-def generate_thinking(client, query):
+def generate_thinking(client, query, level="medium"):
     """
     Generate reasoning steps for a query without providing the answer.
     No persona is used here - this is internal LLM reasoning that should be
@@ -145,27 +145,35 @@ def generate_thinking(client, query):
     Args:
         client: LLM client
         query: The user's query
+        level: Level of detail for reasoning ("low", "medium", "high")
     
     Returns:
         Thinking/reasoning text
     """
+    thinking_steps = "- What is the best approach to consider?\n"
+    thinking_tokens = 600
+    if level == "medium":
+        thinking_steps += "- What are the key challenges or complexities in this query?\n"
+        thinking_tokens = 1200
+    elif level == "high":
+        thinking_steps += "- What are the key challenges or complexities in this query?\n- What caveats, edge cases, or important considerations should be kept in mind?\n"
+        thinking_tokens = 3000
+
     thinking_prompt = (
         "You are about to help answer a query, but first you need to think through your approach.\n\n"
         "Analyze the following query carefully and think through:\n"
-        "- What are the key challenges or complexities in this query?\n"
-        "- What is the best approach to consider?\n"
-        "- What caveats, edge cases, or important considerations should be kept in mind?\n"
+        f"{thinking_steps}\n"
         "IMPORTANT: Do NOT provide the actual answer. Only provide your reasoning and thought process.\n"
-        "Be concise and efficient - this is internal reasoning, not a user-facing response.\n\n"
+        "Be concise and efficient, include only the instructions you need - this is internal reasoning, not a user-facing response.\n\n"
         f"Query: {query}\n\n"
-        "Your reasoning (think deeply, but don't answer):"
+        "Your reasoning (again, don't answer):"
     )
     
     # No system prompt - keep thinking clear and efficient
     thinking = client.call(
         prompt=thinking_prompt,
         temperature=THINKING_TEMPERATURE,
-        max_tokens=1200
+        max_tokens=thinking_tokens
     )
     
     return thinking.strip()
@@ -185,12 +193,12 @@ def generate_response_with_thinking(client, query, thinking, system_prompt=None)
         Final response including <think> block
     """
     response_prompt = (
-        "You previously thought through how to approach this query. "
-        "Now provide your actual response to the user.\n\n"
+        f"The end goal is to answer this query: {query}\n\n"
+        "You already thought through how best to approach this query. "
+        "Now you must follow the outline and provide your actual response to the user.\n\n"
         "Your reasoning was:\n"
-        f"<think>\n{thinking}\n</think>\n\n"
-        f"Query: {query}\n\n"
-        "Based on your reasoning above, provide a comprehensive and well-structured response:"
+        f"{thinking}\n\n"
+        "Provide a response based on the query and your reasoning above:"
     )
     
     response = client.call(
