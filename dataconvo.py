@@ -144,6 +144,11 @@ def main():
     # Save the final dataset
     output_path = os.path.join(os.getcwd(), f"{cfg['DATASET_NAME']}.json")
     save_json(expanded_conversations, output_path)
+    
+    # Clean up checkpoint file
+    checkpoint_path = os.path.join(os.getcwd(), f"{cfg['DATASET_NAME']}-checkpoint.json")
+    if os.path.exists(checkpoint_path):
+        os.remove(checkpoint_path)
 
     print(f"\n[dataconvo] Conversation generation complete.")
     print(f"[dataconvo] Dataset saved to {output_path}")

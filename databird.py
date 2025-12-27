@@ -486,6 +486,12 @@ if __name__ == "__main__":
     final_file = os.path.join(OUTPUT_PATH, f"{DATASET_NAME}-{size_k}k-alpaca.json")
     save_json(final_dataset, final_file)
     
+    # Clean up temporary files
+    if os.path.exists(questions_file):
+        os.remove(questions_file)
+    if os.path.exists(cleaned_file):
+        os.remove(cleaned_file)
+    
     print("\n" + "=" * 60)
     print("DataBird Complete!")
     print("=" * 60)

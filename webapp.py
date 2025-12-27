@@ -206,6 +206,7 @@ async def run_tool_subprocess(tool_name: str, job_id: str, config: dict):
                     'dataqa': r"Progress: (\d+)/(\d+)",
                     'datamix': r"Taking (\d+) of (\d+) entries",
                     'dataconvo': r"Processing entry (\d+) of (\d+)",
+                    'datathink': r"Processing entry (\d+) of (\d+)",
                     'reformat': r"Reformatted entry (\d+) of (\d+)",
                 }
 
@@ -445,6 +446,43 @@ async def run_dataqa(
             pass
 
     background_tasks.add_task(run_tool_subprocess, "dataqa", job_id, config_dict)
+    return {"job_id": job_id, "status": "starting"}
+
+@app.post("/api/jobs/datathink")
+async def run_datathink(
+    background_tasks: BackgroundTasks,
+    dataset_name: str = Form(...),
+    save_interval: int = Form(...),
+    thinking_temperature: float = Form(...),
+    response_temperature: float = Form(...),
+    use_persona: bool = Form(False),
+    persona_name: Optional[str] = Form(None),
+    llm_settings: str = Form(...),
+    file: UploadFile = File(...)
+):
+    """Start DataThink job."""
+    job_id = generate_job_id()
+    job_dir = create_job_workspace(job_id, "datathink", dataset_name)
+    import_dir = os.path.join(job_dir, "import")
+    os.makedirs(import_dir, exist_ok=True)
+
+    # Save uploaded file to import directory
+    with open(os.path.join(import_dir, file.filename), "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    config_dict = {
+        "dataset_name": dataset_name,
+        "save_interval": save_interval,
+        "thinking_temperature": thinking_temperature,
+        "response_temperature": response_temperature,
+        "use_persona": use_persona,
+        "persona_name": persona_name,
+        "import_path": "import",
+        "job_id": job_id,
+        "llm_settings": json.loads(llm_settings)
+    }
+
+    background_tasks.add_task(run_tool_subprocess, "datathink", job_id, config_dict)
     return {"job_id": job_id, "status": "starting"}
 
 @app.post("/api/jobs/dataconvo")

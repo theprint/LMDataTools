@@ -648,6 +648,10 @@ if __name__ == "__main__":
         with open(readme_file, 'w', encoding='utf-8') as f:
             f.write(readme_content)
         
+        # Clean up temporary working file
+        if os.path.exists(dataset_file):
+            os.remove(dataset_file)
+        
         print(f"\nFinal dataset: {final_file}")
         print(f"README: {readme_file}")
         print(f"Total Q&A pairs: {len(all_qa_data)}")
