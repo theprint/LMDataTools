@@ -589,6 +589,14 @@
             font-weight: 500;
             transition: all 0.2s;
         }
+
+        .btn-recreate {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .btn-recreate:hover {
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
         
         .btn-download {
             background: #00ff88;
@@ -2233,7 +2241,10 @@
             let actionsHTML = '';
             let errorHTML = '';
             if (job.status === 'completed') {
-                actionsHTML = `<button class="btn-small btn-download" onclick="downloadJob('${job.job_id}')">Download</button>`;
+                actionsHTML = `
+                    <button class="btn-small btn-download" onclick="downloadJob('${job.job_id}')">Download</button>
+                    <button class="btn-small btn-recreate" onclick="recreateJob('${job.job_id}')">Recreate</button>
+                `;
             }
             if (job.status === 'failed') {
                 errorHTML = `<div class="error-message">Job failed. Check logs.</div>`;
@@ -2263,6 +2274,267 @@
         async function downloadJob(jobId) {
             window.location.href = `/api/jobs/${jobId}/download`;
         }
+
+        // Recreate job
+        async function recreateJob(jobId) {
+        try {
+            const response = await fetch(`/api/jobs/${jobId}`);
+            const job = await response.json();
+            
+            if (!job.config) {
+                alert('This job does not have saved configuration data and cannot be recreated.');
+                return;
+            }
+            
+            // Switch to the appropriate tool
+            const toolSelect = document.getElementById('tool-select');
+            toolSelect.value = job.tool;
+            toolSelect.dispatchEvent(new Event('change'));
+            
+            // Wait for form to render by checking if dataset_name field exists
+            let attempts = 0;
+            const maxAttempts = 20;
+            while (attempts < maxAttempts) {
+                const testField = document.querySelector('input[name="dataset_name"]');
+                if (testField) break;
+                await new Promise(resolve => setTimeout(resolve, 50));
+                attempts++;
+            }
+            
+            // Populate common fields
+            const datasetNameField = document.querySelector('input[name="dataset_name"]');
+            if (datasetNameField && job.config.dataset_name) {
+                datasetNameField.value = job.config.dataset_name + '-recreated';
+            }
+            
+            // Tool-specific field population
+            switch(job.tool) {
+                case 'datapersona':
+                    populateDataPersonaForm(job.config);
+                    break;
+                case 'databird':
+                    populateDataBirdForm(job.config);
+                    break;
+                case 'datawriter':
+                    populateDataWriterForm(job.config);
+                    break;
+                case 'dataqa':
+                    populateDataQAForm(job.config);
+                    break;
+                case 'datathink':
+                    populateDataThinkForm(job.config);
+                    break;
+                case 'dataconvo':
+                    populateDataConvoForm(job.config);
+                    break;
+                case 'reformat':
+                    populateReformatForm(job.config);
+                    break;
+                case 'datamix':
+                    populateDataMixForm(job.config);
+                    break;
+            }
+            
+            // Populate LLM settings if present
+            if (job.config.llm_settings) {
+                populateLLMSettings(job.config.llm_settings);
+            }
+            
+            // Show notification about file uploads
+            if (job.config.uploaded_filenames && job.config.uploaded_filenames.length > 0) {
+                alert(`Note: This job originally used the following file(s):\n${job.config.uploaded_filenames.join('\n')}\n\nYou will need to re-upload these files.`);
+            }
+            
+            // Scroll to top of form
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            
+        } catch (error) {
+            console.error('Error recreating job:', error);
+            alert('Failed to recreate job configuration.');
+        }
+    }
+
+    function populateDataPersonaForm(config) {
+        const personaSelect = document.querySelector('select[name="persona"]');
+        if (personaSelect && config.persona) {
+            personaSelect.value = config.persona;
+        }
+        
+        const reply1Checkbox = document.querySelector('input[name="generate_reply_1"]');
+        if (reply1Checkbox) reply1Checkbox.checked = config.generate_reply_1 || false;
+        
+        const reply2Checkbox = document.querySelector('input[name="generate_reply_2"]');
+        if (reply2Checkbox) reply2Checkbox.checked = config.generate_reply_2 || false;
+        
+        const exportAlpacaCheckbox = document.querySelector('input[name="export_alpaca"]');
+        if (exportAlpacaCheckbox) exportAlpacaCheckbox.checked = config.export_alpaca || false;
+        
+        const saveIntervalInput = document.querySelector('input[name="save_interval"]');
+        if (saveIntervalInput && config.save_interval) {
+            saveIntervalInput.value = config.save_interval;
+        }
+    }
+
+    function populateDataBirdForm(config) {
+        const topicsTextarea = document.querySelector('textarea[name="topics"]');
+        if (topicsTextarea && config.topics) {
+            topicsTextarea.value = config.topics.join('\n');
+        }
+        
+        const fullAutoCheckbox = document.querySelector('input[name="full_auto"]');
+        if (fullAutoCheckbox) fullAutoCheckbox.checked = config.full_auto !== false;
+        
+        const datasetSizeSelect = document.querySelector('select[name="dataset_size"]');
+        if (datasetSizeSelect && config.dataset_size) {
+            datasetSizeSelect.value = config.dataset_size;
+        }
+        
+        const cleanScoreInput = document.querySelector('input[name="clean_score"]');
+        if (cleanScoreInput && config.clean_score !== undefined) {
+            cleanScoreInput.value = config.clean_score;
+        }
+        
+        if (config.manual_perspectives && !config.full_auto) {
+            const manualPerspectivesTextarea = document.querySelector('textarea[name="manual_perspectives"]');
+            if (manualPerspectivesTextarea) {
+                manualPerspectivesTextarea.value = JSON.stringify(config.manual_perspectives, null, 2);
+            }
+        }
+    }
+
+    function populateDataWriterForm(config) {
+        const docCountInput = document.querySelector('input[name="document_count"]');
+        if (docCountInput && config.document_count) {
+            docCountInput.value = config.document_count;
+        }
+        
+        const tempInput = document.querySelector('input[name="temperature"]');
+        if (tempInput && config.temperature !== undefined) {
+            tempInput.value = config.temperature;
+        }
+    }
+
+    function populateDataQAForm(config) {
+        const sourcesTextarea = document.querySelector('textarea[name="sources"]');
+        if (sourcesTextarea && config.sources) {
+            // Filter out file paths (they start with 'import/')
+            const urlSources = config.sources.filter(s => !s.startsWith('import/'));
+            sourcesTextarea.value = urlSources.join('\n');
+        }
+        
+        const autoPerspecCheckbox = document.querySelector('input[name="auto_perspectives"]');
+        if (autoPerspecCheckbox) autoPerspecCheckbox.checked = config.auto_perspectives !== false;
+        
+        const confidenceInput = document.querySelector('input[name="confidence_threshold"]');
+        if (confidenceInput && config.confidence_threshold !== undefined) {
+            confidenceInput.value = config.confidence_threshold;
+        }
+        
+        const usePersonaCheckbox = document.querySelector('input[name="use_persona"]');
+        if (usePersonaCheckbox) usePersonaCheckbox.checked = config.use_persona || false;
+        
+        if (config.use_persona && config.persona_name) {
+            const personaSelect = document.querySelector('select[name="persona_name"]');
+            if (personaSelect) personaSelect.value = config.persona_name;
+        }
+    }
+
+    function populateDataThinkForm(config) {
+        const saveIntervalInput = document.querySelector('input[name="save_interval"]');
+        if (saveIntervalInput && config.save_interval) {
+            saveIntervalInput.value = config.save_interval;
+        }
+        
+        const thinkingTempInput = document.querySelector('input[name="thinking_temperature"]');
+        if (thinkingTempInput && config.thinking_temperature !== undefined) {
+            thinkingTempInput.value = config.thinking_temperature;
+        }
+        
+        const responseTempInput = document.querySelector('input[name="response_temperature"]');
+        if (responseTempInput && config.response_temperature !== undefined) {
+            responseTempInput.value = config.response_temperature;
+        }
+        
+        const usePersonaCheckbox = document.querySelector('input[name="use_persona"]');
+        if (usePersonaCheckbox) usePersonaCheckbox.checked = config.use_persona || false;
+        
+        if (config.use_persona && config.persona_name) {
+            const personaSelect = document.querySelector('select[name="persona_name"]');
+            if (personaSelect) personaSelect.value = config.persona_name;
+        }
+    }
+
+    function populateDataConvoForm(config) {
+        const saveIntervalInput = document.querySelector('input[name="save_interval"]');
+        if (saveIntervalInput && config.save_interval) {
+            saveIntervalInput.value = config.save_interval;
+        }
+        
+        if (config.round_weights) {
+            const roundWeights = typeof config.round_weights === 'string' ? 
+                JSON.parse(config.round_weights) : config.round_weights;
+            
+            const rounds1Input = document.querySelector('input[name="rounds_1"]');
+            const rounds2Input = document.querySelector('input[name="rounds_2"]');
+            const rounds3Input = document.querySelector('input[name="rounds_3"]');
+            
+            if (rounds1Input) rounds1Input.value = roundWeights.rounds_1 || 25;
+            if (rounds2Input) rounds2Input.value = roundWeights.rounds_2 || 50;
+            if (rounds3Input) rounds3Input.value = roundWeights.rounds_3 || 25;
+        }
+        
+        const usePersonaCheckbox = document.querySelector('input[name="use_persona"]');
+        if (usePersonaCheckbox) usePersonaCheckbox.checked = config.use_persona || false;
+        
+        if (config.use_persona && config.persona_name) {
+            const personaSelect = document.querySelector('select[name="persona_name"]');
+            if (personaSelect) personaSelect.value = config.persona_name;
+        }
+    }
+
+    function populateReformatForm(config) {
+        const formatSelect = document.querySelector('select[name="target_format"]');
+        if (formatSelect && config.target_format) {
+            formatSelect.value = config.target_format;
+        }
+    }
+
+    function populateDataMixForm(config) {
+        const totalSamplesInput = document.querySelector('input[name="total_samples"]');
+        if (totalSamplesInput && config.total_samples) {
+            totalSamplesInput.value = config.total_samples;
+        }
+        
+        const seedInput = document.querySelector('input[name="seed"]');
+        if (seedInput && config.seed) {
+            seedInput.value = config.seed;
+        }
+        
+        // Dataset sources is more complex - would need the form structure
+        // This is a placeholder for when DataMix form is implemented
+    }
+
+    function populateLLMSettings(llmSettings) {
+        const providerSelect = document.getElementById('llm-provider');
+        if (providerSelect && llmSettings.llm_provider) {
+            providerSelect.value = llmSettings.llm_provider;
+            providerSelect.dispatchEvent(new Event('change'));
+        }
+        
+        // Wait for provider change to process
+        setTimeout(() => {
+            const baseUrlInput = document.getElementById('llm-base-url');
+            if (baseUrlInput && llmSettings.base_url) {
+                baseUrlInput.value = llmSettings.base_url;
+            }
+            
+            const modelInput = document.getElementById('llm-model');
+            if (modelInput && llmSettings.llm_model) {
+                modelInput.value = llmSettings.llm_model;
+            }
+        }, 100);
+    }
+        
         
         // Delete job
         async function deleteJob(jobId) {

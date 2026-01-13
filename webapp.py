@@ -93,7 +93,7 @@ def generate_job_id():
     """Generate unique job ID."""
     return datetime.now().strftime("%Y%m%d_%H%M%S")
 
-def create_job_workspace(job_id: str, tool_name: str, dataset_name: str):
+def create_job_workspace(job_id: str, tool_name: str, dataset_name: str, config: dict = None):
     """Create workspace for a job."""
     job_dir = os.path.join(JOBS_DIR, job_id)
     os.makedirs(job_dir, exist_ok=True)
@@ -106,6 +106,31 @@ def create_job_workspace(job_id: str, tool_name: str, dataset_name: str):
         "created_at": datetime.now().isoformat(),
         "progress": 0
     }
+    
+    # Save full config for recreation (excluding sensitive data and file contents)
+    if config:
+        config_for_metadata = config.copy()
+        
+        # Remove sensitive data
+        if 'llm_settings' in config_for_metadata and config_for_metadata['llm_settings']:
+            if isinstance(config_for_metadata['llm_settings'], str):
+                config_for_metadata['llm_settings'] = json.loads(config_for_metadata['llm_settings'])
+            config_for_metadata['llm_settings'].pop('api_key', None)
+            config_for_metadata['llm_settings'].pop('hugging_face_api_key', None)
+        
+        # Extract filenames from file upload fields
+        uploaded_filenames = []
+        if 'files' in config:
+            uploaded_filenames = config['files']
+            config_for_metadata.pop('files', None)
+        elif 'file' in config:
+            uploaded_filenames = [config['file']]
+            config_for_metadata.pop('file', None)
+        
+        if uploaded_filenames:
+            config_for_metadata['uploaded_filenames'] = uploaded_filenames
+        
+        metadata['config'] = config_for_metadata
     
     with open(os.path.join(job_dir, "metadata.json"), 'w') as f:
         json.dump(metadata, f, indent=2)
@@ -346,21 +371,24 @@ async def run_datapersona(
 ):
     """Start DataPersona job."""
     job_id = generate_job_id()
-    job_dir = create_job_workspace(job_id, "datapersona", dataset_name)
+    # Before calling create_job_workspace, build the config
+    config_dict = {
+        "persona": persona,
+        "generate_reply_1": generate_reply_1,
+        "generate_reply_2": generate_reply_2,
+        "save_interval": save_interval,
+        "export_alpaca": export_alpaca,
+        "dataset_name": dataset_name,
+        "files": [file.filename for file in files],
+        "llm_settings": json.loads(llm_settings)
+    }
+    job_dir = create_job_workspace(job_id, "datapersona", dataset_name, config_dict)
     import_dir = os.path.join(job_dir, "import")
     os.makedirs(import_dir, exist_ok=True)
 
     for file in files:
         with open(os.path.join(import_dir, file.filename), "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-    
-    config_dict = {
-        "persona": persona, "generate_reply_1": generate_reply_1,
-        "generate_reply_2": generate_reply_2, "save_interval": save_interval, "export_alpaca": export_alpaca,
-        "dataset_name": dataset_name, "job_id": job_id,
-        "import_path": "import",
-        "llm_settings": json.loads(llm_settings)
-    }
 
     background_tasks.add_task(run_tool_subprocess, "datapersona", job_id, config_dict)
     return {"job_id": job_id, "status": "starting"}
@@ -369,13 +397,14 @@ async def run_datapersona(
 async def run_databird(config: DataBirdConfig, background_tasks: BackgroundTasks):
     """Start DataBird job."""
     job_id = generate_job_id()
-    job_dir = create_job_workspace(job_id, "databird", config.dataset_name)
     
     output_path = os.path.abspath(os.path.join(os.getcwd(), "output", "databird", f"{job_id}_{config.dataset_name}"))
 
     config_dict = config.dict()
     config_dict["job_id"] = job_id
     config_dict["output_path"] = output_path
+    
+    job_dir = create_job_workspace(job_id, "databird", config.dataset_name, config_dict)
     
     background_tasks.add_task(run_tool_subprocess, "databird", job_id, config_dict)
     return {"job_id": job_id, "status": "starting"}
@@ -384,10 +413,10 @@ async def run_databird(config: DataBirdConfig, background_tasks: BackgroundTasks
 async def run_datawriter(config: DataWriterConfig, background_tasks: BackgroundTasks):
     """Start DataWriter job."""
     job_id = generate_job_id()
-    job_dir = create_job_workspace(job_id, "datawriter", config.dataset_name)
-
     config_dict = config.dict()
     config_dict["job_id"] = job_id
+
+    job_dir = create_job_workspace(job_id, "datawriter", config.dataset_name, config_dict)
 
     background_tasks.add_task(run_tool_subprocess, "datawriter", job_id, config_dict)
     return {"job_id": job_id, "status": "starting"}
@@ -407,7 +436,20 @@ async def run_dataqa(
 ):
     """Start DataQA job."""
     job_id = generate_job_id()
-    job_dir = create_job_workspace(job_id, "dataqa", dataset_name)
+    
+    config_dict = {
+        "dataset_name": dataset_name,
+        "sources": sources,
+        "auto_perspectives": auto_perspectives,
+        "confidence_threshold": confidence_threshold,
+        "use_persona": use_persona,
+        "persona_name": persona_name,
+        "files": [file.filename for file in files] if files else [],
+        "llm_settings": json.loads(llm_settings)
+    }
+
+    job_dir = create_job_workspace(job_id, "dataqa", dataset_name, config_dict)
+
     import_dir = os.path.join(job_dir, "import")
     os.makedirs(import_dir, exist_ok=True)
 
@@ -462,7 +504,20 @@ async def run_datathink(
 ):
     """Start DataThink job."""
     job_id = generate_job_id()
-    job_dir = create_job_workspace(job_id, "datathink", dataset_name)
+    
+    config_dict = {
+        "dataset_name": dataset_name,
+        "save_interval": save_interval,
+        "thinking_temperature": thinking_temperature,
+        "response_temperature": response_temperature,
+        "use_persona": use_persona,
+        "persona_name": persona_name,
+        "file": file.filename,
+        "llm_settings": json.loads(llm_settings)
+    }
+
+    job_dir = create_job_workspace(job_id, "datathink", dataset_name, config_dict)
+
     import_dir = os.path.join(job_dir, "import")
     os.makedirs(import_dir, exist_ok=True)
 
@@ -498,23 +553,23 @@ async def run_dataconvo(
 ):
     """Start DataConvo job."""
     job_id = generate_job_id()
-    job_dir = create_job_workspace(job_id, "dataconvo", dataset_name)
+    config_dict = {
+        "dataset_name": dataset_name,
+        "save_interval": save_interval,
+        "round_weights": round_weights,
+        "use_persona": use_persona,
+        "persona_name": persona_name,
+        "file": file.filename,
+        "llm_settings": json.loads(llm_settings)
+    }
+
+    job_dir = create_job_workspace(job_id, "dataconvo", dataset_name, config_dict)
+
     import_dir = os.path.join(job_dir, "import")
     os.makedirs(import_dir, exist_ok=True)
 
     with open(os.path.join(import_dir, file.filename), "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-
-    config_dict = {
-        "dataset_name": dataset_name,
-        "save_interval": save_interval,
-        "round_weights": json.loads(round_weights),
-        "use_persona": use_persona,
-        "persona_name": persona_name,
-        "import_path": "import",
-        "job_id": job_id,
-        "llm_settings": json.loads(llm_settings)
-    }
 
     background_tasks.add_task(run_tool_subprocess, "dataconvo", job_id, config_dict)
     return {"job_id": job_id, "status": "starting"}
@@ -529,20 +584,20 @@ async def run_reformat(
 ):
     """Start Reformat job."""
     job_id = generate_job_id()
-    job_dir = create_job_workspace(job_id, "reformat", dataset_name)
+    config_dict = {
+        "dataset_name": dataset_name,
+        "target_format": target_format,
+        "file": file.filename,
+        "llm_settings": json.loads(llm_settings)
+    }
+
+    job_dir = create_job_workspace(job_id, "reformat", dataset_name, config_dict)
+
     import_dir = os.path.join(job_dir, "import")
     os.makedirs(import_dir, exist_ok=True)
 
     with open(os.path.join(import_dir, file.filename), "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-
-    config_dict = {
-        "dataset_name": dataset_name,
-        "target_format": target_format,
-        "import_path": "import",
-        "job_id": job_id,
-        "llm_settings": json.loads(llm_settings)
-    }
 
     background_tasks.add_task(run_tool_subprocess, "reformat", job_id, config_dict)
     return {"job_id": job_id, "status": "starting"}
@@ -551,10 +606,10 @@ async def run_reformat(
 async def run_datamix(config: DataMixConfig, background_tasks: BackgroundTasks):
     """Start DataMix job."""
     job_id = generate_job_id()
-    job_dir = create_job_workspace(job_id, "datamix", config.dataset_name)
-
     config_dict = config.dict()
     config_dict["job_id"] = job_id
+
+    job_dir = create_job_workspace(job_id, "datamix", config.dataset_name, config_dict)
 
     background_tasks.add_task(run_tool_subprocess, "datamix", job_id, config_dict)
     return {"job_id": job_id, "status": "starting"}
