@@ -2243,7 +2243,6 @@
             if (job.status === 'completed') {
                 actionsHTML = `
                     <button class="btn-small btn-download" onclick="downloadJob('${job.job_id}')">Download</button>
-                    <button class="btn-small btn-recreate" onclick="recreateJob('${job.job_id}')">Recreate</button>
                 `;
             }
             if (job.status === 'failed') {
