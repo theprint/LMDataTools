@@ -2188,7 +2188,7 @@
                 
                 const data = await response.json();
                 monitorJob(data.job_id);
-                loadJobs(false); // Incremental update to add new job
+                loadJobs();
             } catch (error) {
                 console.error('Error:', error);
                 alert(`Error starting job: ${error.message}`);
@@ -2233,30 +2233,30 @@
         function updateJobDisplay(job) {
             const jobsList = document.getElementById('jobs-list');
             let jobDiv = document.getElementById(`job-${job.job_id}`);
-            
+
             // Remove empty state if present
             const emptyState = jobsList.querySelector('.empty-jobs');
             if (emptyState) {
                 emptyState.remove();
             }
-            
+
             if (!jobDiv) {
                 jobDiv = document.createElement('div');
                 jobDiv.id = `job-${job.job_id}`;
                 jobDiv.dataset.createdAt = job.created_at;
-                
+
                 // Insert at correct position (newest first)
                 const existingJobs = Array.from(jobsList.children);
                 const insertBefore = existingJobs.find(el => el.dataset.createdAt < job.created_at);
                 jobsList.insertBefore(jobDiv, insertBefore || null);
             }
-            
+
             jobDiv.className = `job-item status-${job.status}`;
-            
-            const statusClass = job.status === 'running' ? 'running' : 
-                              job.status === 'completed' ? 'completed' : 
+
+            const statusClass = job.status === 'running' ? 'running' :
+                              job.status === 'completed' ? 'completed' :
                               job.status === 'failed' ? 'failed' : '';
-            
+
             let actionsHTML = '';
             let errorHTML = '';
             if (job.status === 'completed') {
@@ -2267,7 +2267,7 @@
             if (job.status === 'failed') {
                 errorHTML = `<div class="error-message">Job failed. Check logs.</div>`;
             }
-            
+
             jobDiv.innerHTML = `
                 <div class="job-header">
                     <span class="job-title">${job.dataset_name} (${job.tool})</span>
@@ -2582,7 +2582,7 @@
         }
         
         // Load jobs on startup
-        async function loadJobs(fullReload = false) {
+        async function loadJobs() {
             try {
                 const response = await fetch('/api/jobs');
                 const data = await response.json();
@@ -2600,31 +2600,9 @@
                     emptyState.remove();
                 }
 
-                if (fullReload) {
-                    // Full reload: clear and rebuild
-                    jobsList.innerHTML = '';
-                    data.jobs.forEach(updateJobDisplay);
-                } else {
-                    // Incremental update: only update existing jobs or add new ones
-                    const existingJobIds = new Set(
-                        Array.from(jobsList.children)
-                            .filter(el => el.id && el.id.startsWith('job-'))
-                            .map(el => el.id.replace('job-', ''))
-                    );
+                // Simple: just update all jobs every time
+                data.jobs.forEach(updateJobDisplay);
 
-                    const currentJobIds = new Set(data.jobs.map(job => job.job_id));
-
-                    // Remove jobs that no longer exist
-                    existingJobIds.forEach(jobId => {
-                        if (!currentJobIds.has(jobId)) {
-                            const jobDiv = document.getElementById(`job-${jobId}`);
-                            if (jobDiv) jobDiv.remove();
-                        }
-                    });
-
-                    // Update or add jobs
-                    data.jobs.forEach(updateJobDisplay);
-                }
             } catch (error) {
                 console.error('Error loading jobs:', error);
             }
@@ -2632,9 +2610,9 @@
 
         // Initialize
         loadSettings();
-        loadJobs(true); // Full reload on startup
+        loadJobs();
         showOverviewPage(); // Show overview page on initial load
-        setInterval(() => loadJobs(false), 5000); // Incremental refresh every 5 seconds
+        setInterval(loadJobs, 5000); // Refresh every 5 seconds
 
         // Clear Failed Jobs functionality
         const clearFailedJobsBtn = document.getElementById('clear-failed-jobs-btn');
@@ -2650,7 +2628,7 @@
                         throw new Error(error.detail || 'Failed to clear failed jobs');
                     }
                     alert('Failed jobs cleared successfully!');
-                    loadJobs(true); // Full refresh after clearing
+                    loadJobs();
                 } catch (error) {
                     alert(`Error clearing failed jobs: ${error.message}`);
                     console.error('Error:', error);

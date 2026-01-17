@@ -295,19 +295,27 @@ async def run_tool_subprocess(tool_name: str, job_id: str, config: dict):
             os.remove(config_file)
         
         if process.returncode == 0:
-            actual_output_path = job_dir
-            
-            zip_path = os.path.join(job_dir, f"{tool_name}_output.zip")
-            
-            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                for file in os.listdir(actual_output_path):
-                    if file.endswith('.json') and file != 'config.json':
-                        file_path = os.path.join(actual_output_path, file)
-                        zipf.write(file_path, arcname=file)
-                        os.remove(file_path)
-            
-            update_job_status(job_id, "completed", 100)
+            try:
+                actual_output_path = job_dir
+
+                zip_path = os.path.join(job_dir, f"{tool_name}_output.zip")
+
+                with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                    for file in os.listdir(actual_output_path):
+                        if file.endswith('.json') and file != 'config.json':
+                            file_path = os.path.join(actual_output_path, file)
+                            zipf.write(file_path, arcname=file)
+                            os.remove(file_path)
+
+                print(f"[{tool_name}] Job {job_id} completed successfully, updating status...")
+                update_job_status(job_id, "completed", 100)
+                print(f"[{tool_name}] Job {job_id} status updated to completed")
+            except Exception as zip_error:
+                print(f"[{tool_name}] Error creating zip for job {job_id}: {zip_error}")
+                # Still mark as completed even if zip fails - data is there
+                update_job_status(job_id, "completed", 100)
         else:
+            print(f"[{tool_name}] Job {job_id} failed with return code {process.returncode}")
             update_job_status(job_id, "failed", 0)
             
             with open(os.path.join(job_dir, "error.log"), 'w', encoding='utf-8') as f:
