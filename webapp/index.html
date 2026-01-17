@@ -2188,7 +2188,7 @@
                 
                 const data = await response.json();
                 monitorJob(data.job_id);
-                loadJobs();
+                loadJobs(false); // Incremental update to add new job
             } catch (error) {
                 console.error('Error:', error);
                 alert(`Error starting job: ${error.message}`);
@@ -2208,12 +2208,22 @@
             activeWebSocket.onmessage = (event) => {
                 const data = JSON.parse(event.data);
                 updateJobDisplay(data);
+
+                // Close WebSocket when job is done
+                if (data.status === 'completed' || data.status === 'failed') {
+                    setTimeout(() => {
+                        if (activeWebSocket) {
+                            activeWebSocket.close();
+                            activeWebSocket = null;
+                        }
+                    }, 1000);
+                }
             };
-            
+
             activeWebSocket.onerror = (error) => {
                 console.error('WebSocket error:', error);
             };
-            
+
             activeWebSocket.onclose = () => {
                 activeWebSocket = null;
             };
@@ -2572,29 +2582,59 @@
         }
         
         // Load jobs on startup
-        async function loadJobs() {
+        async function loadJobs(fullReload = false) {
             try {
                 const response = await fetch('/api/jobs');
                 const data = await response.json();
-                
+
                 const jobsList = document.getElementById('jobs-list');
-                jobsList.innerHTML = '';
-                
+
                 if (data.jobs.length === 0) {
                     jobsList.innerHTML = '<div class="empty-jobs">No jobs yet</div>';
+                    return;
+                }
+
+                // Remove empty state if present
+                const emptyState = jobsList.querySelector('.empty-jobs');
+                if (emptyState) {
+                    emptyState.remove();
+                }
+
+                if (fullReload) {
+                    // Full reload: clear and rebuild
+                    jobsList.innerHTML = '';
+                    data.jobs.forEach(updateJobDisplay);
                 } else {
+                    // Incremental update: only update existing jobs or add new ones
+                    const existingJobIds = new Set(
+                        Array.from(jobsList.children)
+                            .filter(el => el.id && el.id.startsWith('job-'))
+                            .map(el => el.id.replace('job-', ''))
+                    );
+
+                    const currentJobIds = new Set(data.jobs.map(job => job.job_id));
+
+                    // Remove jobs that no longer exist
+                    existingJobIds.forEach(jobId => {
+                        if (!currentJobIds.has(jobId)) {
+                            const jobDiv = document.getElementById(`job-${jobId}`);
+                            if (jobDiv) jobDiv.remove();
+                        }
+                    });
+
+                    // Update or add jobs
                     data.jobs.forEach(updateJobDisplay);
                 }
             } catch (error) {
                 console.error('Error loading jobs:', error);
             }
         }
-        
+
         // Initialize
         loadSettings();
-        loadJobs();
+        loadJobs(true); // Full reload on startup
         showOverviewPage(); // Show overview page on initial load
-        setInterval(loadJobs, 5000); // Refresh every 5 seconds
+        setInterval(() => loadJobs(false), 5000); // Incremental refresh every 5 seconds
 
         // Clear Failed Jobs functionality
         const clearFailedJobsBtn = document.getElementById('clear-failed-jobs-btn');
@@ -2610,7 +2650,7 @@
                         throw new Error(error.detail || 'Failed to clear failed jobs');
                     }
                     alert('Failed jobs cleared successfully!');
-                    loadJobs(); // Refresh the job list
+                    loadJobs(true); // Full refresh after clearing
                 } catch (error) {
                     alert(`Error clearing failed jobs: ${error.message}`);
                     console.error('Error:', error);

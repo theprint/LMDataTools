@@ -5,6 +5,7 @@ Web interface for DataSynthesis Suite
 from datapersona import DEFAULT_CONFIG as DATAPERSONA_DEFAULTS
 from openai import OpenAI # Import OpenAI client for model listing
 from fastapi import FastAPI, BackgroundTasks, HTTPException, WebSocket, File, UploadFile, Form
+from starlette.websockets import WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
@@ -715,18 +716,26 @@ async def list_jobs():
     """List all jobs."""
     jobs = []
     for job_id in os.listdir(JOBS_DIR):
-        metadata_file = os.path.join(JOBS_DIR, job_id, "metadata.json")
-        if os.path.exists(metadata_file):
-            try:
-                with open(metadata_file, 'r') as f:
-                    jobs.append(json.load(f))
-            except (json.JSONDecodeError, ValueError) as e:
-                print(f"Warning: Skipping corrupted metadata file for job {job_id}: {e}")
-                continue
-            except Exception as e:
-                print(f"Error reading metadata file for job {job_id}: {e}")
-                continue
-    
+        # Prefer active_jobs (in-memory) over disk for active jobs
+        if job_id in active_jobs:
+            jobs.append(active_jobs[job_id])
+        else:
+            metadata_file = os.path.join(JOBS_DIR, job_id, "metadata.json")
+            if os.path.exists(metadata_file):
+                try:
+                    with open(metadata_file, 'r') as f:
+                        job_data = json.load(f)
+                        jobs.append(job_data)
+                        # Cache completed/failed jobs in active_jobs for consistency
+                        if job_data.get("status") in ["completed", "failed"]:
+                            active_jobs[job_id] = job_data
+                except (json.JSONDecodeError, ValueError) as e:
+                    print(f"Warning: Skipping corrupted metadata file for job {job_id}: {e}")
+                    continue
+                except Exception as e:
+                    print(f"Error reading metadata file for job {job_id}: {e}")
+                    continue
+
     return {"jobs": sorted(jobs, key=lambda x: x["created_at"], reverse=True)}
 
 @app.get("/api/settings/{tool_name}")
@@ -745,23 +754,31 @@ async def save_tool_settings(tool_name: str, settings: dict):
 async def websocket_progress(websocket: WebSocket, job_id: str):
     """WebSocket for real-time progress updates."""
     await websocket.accept()
-    
+
     try:
         while True:
             job_data = active_jobs.get(job_id)
             if job_data:
                 await websocket.send_json(job_data)
-            
+
             if job_data and job_data.get("status") in ["completed", "failed"]:
                 await asyncio.sleep(1)
                 break
-            
+
             await asyncio.sleep(1)
-    
+
+    except WebSocketDisconnect:
+        # Normal client disconnect - no error logging needed
+        pass
     except Exception as e:
-        print(f"WebSocket error: {e}")
+        print(f"WebSocket unexpected error: {e}")
     finally:
-        await websocket.close()
+        # Only close if not already closed
+        try:
+            if websocket.client_state.name != "DISCONNECTED":
+                await websocket.close()
+        except Exception:
+            pass  # Already closed or in invalid state
 
 @app.delete("/api/jobs/clear_failed")
 async def clear_failed_jobs():
