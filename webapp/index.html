@@ -2647,15 +2647,19 @@
                         }
                     });
 
-                    // Update or add jobs (skip completed/failed jobs to prevent flickering)
+                    // Update or add jobs
                     data.jobs.forEach(job => {
                         const existingDiv = document.getElementById(`job-${job.job_id}`);
-                        const isCompleted = existingDiv &&
-                                          (existingDiv.dataset.status === 'completed' ||
-                                           existingDiv.dataset.status === 'failed');
 
-                        // Only update if job doesn't exist or is still running
-                        if (!isCompleted) {
+                        // Skip if already completed in DOM AND backend also says completed
+                        // This prevents flickering while allowing status transitions
+                        const domCompleted = existingDiv &&
+                                           (existingDiv.dataset.status === 'completed' ||
+                                            existingDiv.dataset.status === 'failed');
+                        const apiCompleted = job.status === 'completed' || job.status === 'failed';
+
+                        // Only skip if BOTH are completed (prevents stuck jobs)
+                        if (!(domCompleted && apiCompleted)) {
                             updateJobDisplay(job);
                         }
                     });
