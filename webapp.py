@@ -554,6 +554,7 @@ async def run_datathink(
     save_interval: int = Form(...),
     thinking_temperature: float = Form(...),
     response_temperature: float = Form(...),
+    reasoning_level: str = Form("medium"),
     use_persona: bool = Form(False),
     persona_name: Optional[str] = Form(None),
     llm_settings: str = Form(...),
@@ -561,15 +562,17 @@ async def run_datathink(
 ):
     """Start DataThink job."""
     job_id = generate_job_id()
-    
+
     config_dict = {
         "dataset_name": dataset_name,
         "save_interval": save_interval,
         "thinking_temperature": thinking_temperature,
         "response_temperature": response_temperature,
+        "reasoning_level": reasoning_level,
         "use_persona": use_persona,
         "persona_name": persona_name,
-        "file": file.filename,
+        "import_path": "import",
+        "job_id": job_id,
         "llm_settings": json.loads(llm_settings)
     }
 
@@ -582,23 +585,12 @@ async def run_datathink(
     with open(os.path.join(import_dir, file.filename), "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    config_dict = {
-        "dataset_name": dataset_name,
-        "save_interval": save_interval,
-        "thinking_temperature": thinking_temperature,
-        "response_temperature": response_temperature,
-        "use_persona": use_persona,
-        "persona_name": persona_name,
-        "import_path": "import",
-        "job_id": job_id,
-        "llm_settings": json.loads(llm_settings)
-    }
-
     # Save user settings for next time
     settings_to_save = {
         "save_interval": save_interval,
         "thinking_temperature": thinking_temperature,
         "response_temperature": response_temperature,
+        "reasoning_level": reasoning_level,
         "use_persona": use_persona,
         "persona_name": persona_name
     }
