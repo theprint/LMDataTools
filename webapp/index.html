@@ -2188,7 +2188,7 @@
                 
                 const data = await response.json();
                 monitorJob(data.job_id);
-                loadJobs(false); // Incremental update to add new job
+                loadJobs();
             } catch (error) {
                 console.error('Error:', error);
                 alert(`Error starting job: ${error.message}`);
@@ -2240,9 +2240,7 @@
                 emptyState.remove();
             }
 
-            const isNewJob = !jobDiv;
-
-            if (isNewJob) {
+            if (!jobDiv) {
                 jobDiv = document.createElement('div');
                 jobDiv.id = `job-${job.job_id}`;
                 jobDiv.dataset.createdAt = job.created_at;
@@ -2253,64 +2251,41 @@
                 jobsList.insertBefore(jobDiv, insertBefore || null);
             }
 
-            // Update class
             jobDiv.className = `job-item status-${job.status}`;
 
-            // Check if we need to update the HTML (avoid unnecessary DOM writes)
-            const currentStatus = jobDiv.dataset.status;
-            const currentProgress = jobDiv.dataset.progress;
-            const needsUpdate = isNewJob ||
-                               currentStatus !== job.status ||
-                               currentProgress !== String(job.progress || 0);
+            const statusClass = job.status === 'running' ? 'running' :
+                              job.status === 'completed' ? 'completed' :
+                              job.status === 'failed' ? 'failed' : '';
 
-            if (needsUpdate) {
-                jobDiv.dataset.status = job.status;
-                jobDiv.dataset.progress = job.progress || 0;
-
-                const statusClass = job.status === 'running' ? 'running' :
-                                  job.status === 'completed' ? 'completed' :
-                                  job.status === 'failed' ? 'failed' : '';
-
-                let actionsHTML = '';
-                let errorHTML = '';
-                if (job.status === 'completed') {
-                    actionsHTML = `
-                        <button class="btn-small btn-download" onclick="downloadJob('${job.job_id}')">Download</button>
-                    `;
-                }
-                if (job.status === 'failed') {
-                    errorHTML = `<div class="error-message">Job failed. Check logs.</div>`;
-                }
-
-                jobDiv.innerHTML = `
-                    <div class="job-header">
-                        <span class="job-title">${job.dataset_name} (${job.tool})</span>
-                        <span class="job-status ${statusClass}">${job.status}</span>
-                    </div>
-                    <div class="job-id">${job.job_id}</div>
-                    <div class="progress-bar">
-                        <div class="progress-fill" style="width: ${job.progress || 0}%"></div>
-                    </div>
-                    <div class="progress-text">${job.progress || 0}% complete</div>
-                    <div class="job-actions">
-                        ${errorHTML}
-                        <div class="job-actions-buttons">
-                            ${actionsHTML}
-                            <button class="btn-small btn-delete" onclick="deleteJob('${job.job_id}')">Delete</button>
-                        </div>
-                    </div>
+            let actionsHTML = '';
+            let errorHTML = '';
+            if (job.status === 'completed') {
+                actionsHTML = `
+                    <button class="btn-small btn-download" onclick="downloadJob('${job.job_id}')">Download</button>
                 `;
-            } else {
-                // Just update the progress bar and text without full innerHTML rewrite
-                const progressFill = jobDiv.querySelector('.progress-fill');
-                const progressText = jobDiv.querySelector('.progress-text');
-                if (progressFill) {
-                    progressFill.style.width = `${job.progress || 0}%`;
-                }
-                if (progressText) {
-                    progressText.textContent = `${job.progress || 0}% complete`;
-                }
             }
+            if (job.status === 'failed') {
+                errorHTML = `<div class="error-message">Job failed. Check logs.</div>`;
+            }
+
+            jobDiv.innerHTML = `
+                <div class="job-header">
+                    <span class="job-title">${job.dataset_name} (${job.tool})</span>
+                    <span class="job-status ${statusClass}">${job.status}</span>
+                </div>
+                <div class="job-id">${job.job_id}</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: ${job.progress || 0}%"></div>
+                </div>
+                <div class="progress-text">${job.progress || 0}% complete</div>
+                <div class="job-actions">
+                    ${errorHTML}
+                    <div class="job-actions-buttons">
+                        ${actionsHTML}
+                        <button class="btn-small btn-delete" onclick="deleteJob('${job.job_id}')">Delete</button>
+                    </div>
+                </div>
+            `;
         }
         
         // Download job output
@@ -2607,7 +2582,7 @@
         }
         
         // Load jobs on startup
-        async function loadJobs(fullReload = false) {
+        async function loadJobs() {
             try {
                 const response = await fetch('/api/jobs');
                 const data = await response.json();
@@ -2625,45 +2600,9 @@
                     emptyState.remove();
                 }
 
-                if (fullReload) {
-                    // Full reload: clear and rebuild
-                    jobsList.innerHTML = '';
-                    data.jobs.forEach(updateJobDisplay);
-                } else {
-                    // Incremental update: only update existing jobs or add new ones
-                    const existingJobIds = new Set(
-                        Array.from(jobsList.children)
-                            .filter(el => el.id && el.id.startsWith('job-'))
-                            .map(el => el.id.replace('job-', ''))
-                    );
+                // Simple: just update all jobs every time
+                data.jobs.forEach(updateJobDisplay);
 
-                    const currentJobIds = new Set(data.jobs.map(job => job.job_id));
-
-                    // Remove jobs that no longer exist
-                    existingJobIds.forEach(jobId => {
-                        if (!currentJobIds.has(jobId)) {
-                            const jobDiv = document.getElementById(`job-${jobId}`);
-                            if (jobDiv) jobDiv.remove();
-                        }
-                    });
-
-                    // Update or add jobs
-                    data.jobs.forEach(job => {
-                        const existingDiv = document.getElementById(`job-${job.job_id}`);
-
-                        // Skip if already completed in DOM AND backend also says completed
-                        // This prevents flickering while allowing status transitions
-                        const domCompleted = existingDiv &&
-                                           (existingDiv.dataset.status === 'completed' ||
-                                            existingDiv.dataset.status === 'failed');
-                        const apiCompleted = job.status === 'completed' || job.status === 'failed';
-
-                        // Only skip if BOTH are completed (prevents stuck jobs)
-                        if (!(domCompleted && apiCompleted)) {
-                            updateJobDisplay(job);
-                        }
-                    });
-                }
             } catch (error) {
                 console.error('Error loading jobs:', error);
             }
@@ -2671,9 +2610,9 @@
 
         // Initialize
         loadSettings();
-        loadJobs(true); // Full reload on startup
+        loadJobs();
         showOverviewPage(); // Show overview page on initial load
-        setInterval(() => loadJobs(false), 5000); // Incremental refresh every 5 seconds
+        setInterval(loadJobs, 5000); // Refresh every 5 seconds
 
         // Clear Failed Jobs functionality
         const clearFailedJobsBtn = document.getElementById('clear-failed-jobs-btn');
@@ -2689,7 +2628,7 @@
                         throw new Error(error.detail || 'Failed to clear failed jobs');
                     }
                     alert('Failed jobs cleared successfully!');
-                    loadJobs(true); // Full refresh after clearing
+                    loadJobs();
                 } catch (error) {
                     alert(`Error clearing failed jobs: ${error.message}`);
                     console.error('Error:', error);
