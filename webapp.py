@@ -727,25 +727,17 @@ async def list_jobs():
     """List all jobs."""
     jobs = []
     for job_id in os.listdir(JOBS_DIR):
-        # Prefer active_jobs (in-memory) over disk for active jobs
-        if job_id in active_jobs:
-            jobs.append(active_jobs[job_id])
-        else:
-            metadata_file = os.path.join(JOBS_DIR, job_id, "metadata.json")
-            if os.path.exists(metadata_file):
-                try:
-                    with open(metadata_file, 'r') as f:
-                        job_data = json.load(f)
-                        jobs.append(job_data)
-                        # Cache completed/failed jobs in active_jobs for consistency
-                        if job_data.get("status") in ["completed", "failed"]:
-                            active_jobs[job_id] = job_data
-                except (json.JSONDecodeError, ValueError) as e:
-                    print(f"Warning: Skipping corrupted metadata file for job {job_id}: {e}")
-                    continue
-                except Exception as e:
-                    print(f"Error reading metadata file for job {job_id}: {e}")
-                    continue
+        metadata_file = os.path.join(JOBS_DIR, job_id, "metadata.json")
+        if os.path.exists(metadata_file):
+            try:
+                with open(metadata_file, 'r') as f:
+                    jobs.append(json.load(f))
+            except (json.JSONDecodeError, ValueError) as e:
+                print(f"Warning: Skipping corrupted metadata file for job {job_id}: {e}")
+                continue
+            except Exception as e:
+                print(f"Error reading metadata file for job {job_id}: {e}")
+                continue
 
     return {"jobs": sorted(jobs, key=lambda x: x["created_at"], reverse=True)}
 
