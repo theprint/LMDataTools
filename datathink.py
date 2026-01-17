@@ -285,7 +285,7 @@ if __name__ == "__main__":
             if not entry_needs_processing(entry):
                 continue
             
-            print(f"Processing entry {i + 1}/{len(processor.data)}...")
+            print(f"Processing entry {i + 1} of {len(processor.data)}...", flush=True)
             
             # Extract query and original response
             query, original_response = extract_query_and_response(entry, format_type)
