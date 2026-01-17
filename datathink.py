@@ -155,10 +155,10 @@ def generate_thinking(client, query, level="medium"):
     thinking_steps = "- Briefly outline the best approach to consider, and why?\n"
     thinking_tokens = 600
     if level == "medium":
-        thinking_steps += "- If any, what are the major challenges or complexities of this query?\n"
+        thinking_steps += "- If any, detail the major challenges and complexities of this query.\n"
         thinking_tokens = 1200
     elif level == "high":
-        thinking_steps += "- If any, what are the major challenges or complexities of this query?\n- What caveats, edge cases, or important considerations should be kept in mind? For each such consideration, explain why it matters and how it should be handled.\n"
+        thinking_steps += "- If any, detail the major challenges and complexities of this query.\n- What caveats, edge cases, or important considerations should be kept in mind? For each such consideration, explain why it matters and how it should be handled.\n"
         thinking_tokens = 3000
 
     thinking_prompt = (
@@ -166,7 +166,7 @@ def generate_thinking(client, query, level="medium"):
         "Analyze the following query carefully and think through:\n"
         f"{thinking_steps}\n"
         "IMPORTANT: Do NOT provide the actual answer. Only provide your reasoning and thought process.\n"
-        "Be concise and efficient, include only the instructions you need - this is internal reasoning, not a user-facing response.\n\n"
+        "Remember: this is strictly internal reasoning, not a user-facing response.\n\n"
         f"Query: {query}\n\n"
         "Your reasoning (again, don't answer):"
     )
