@@ -3,3 +3,8 @@
 
 /jobs/*
 /__pycache__/
+
+# Local development files
+CLAUDE.md
+.claude/settings.local.json
+user_settings.json

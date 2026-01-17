@@ -27,6 +27,9 @@ active_jobs: Dict[str, dict] = {}
 JOBS_DIR = "./jobs"
 os.makedirs(JOBS_DIR, exist_ok=True)
 
+# User settings storage
+SETTINGS_FILE = "./user_settings.json"
+
 # ============================================================================
 # Data Models
 # ============================================================================
@@ -89,6 +92,23 @@ class DataMixConfig(BaseModel):
 # ============================================================================
 # Utilities
 # ============================================================================
+
+def load_user_settings():
+    """Load user settings from file."""
+    if os.path.exists(SETTINGS_FILE):
+        try:
+            with open(SETTINGS_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
+
+def save_user_settings(tool_name: str, settings: dict):
+    """Save user settings for a specific tool."""
+    all_settings = load_user_settings()
+    all_settings[tool_name] = settings
+    with open(SETTINGS_FILE, 'w') as f:
+        json.dump(all_settings, f, indent=2)
 
 def generate_job_id():
     """Generate unique job ID."""
@@ -327,8 +347,12 @@ async def list_tools():
     }
 
 @app.get("/api/personas")
-async def list_personas():
-    """List available personas from personas.json."""
+async def list_personas(full: bool = False):
+    """List available personas from personas.json.
+
+    Args:
+        full: If True, returns full persona objects. If False (default), returns only names.
+    """
     personas_file = "personas.json"
     if not os.path.exists(personas_file):
         raise HTTPException(status_code=404, detail="personas.json not found")
@@ -336,7 +360,10 @@ async def list_personas():
     with open(personas_file, 'r', encoding='utf-8') as f:
         personas_data = json.load(f)
 
-    return {"personas": list(personas_data.keys())}
+    if full:
+        return {"personas": personas_data}
+    else:
+        return {"personas": list(personas_data.keys())}
 
 @app.get("/api/persona/{persona_name}")
 async def get_persona(persona_name: str):
@@ -391,6 +418,16 @@ async def run_datapersona(
         with open(os.path.join(import_dir, file.filename), "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
+    # Save user settings for next time (exclude file-specific data)
+    settings_to_save = {
+        "persona": persona,
+        "save_interval": save_interval,
+        "generate_reply_1": generate_reply_1,
+        "generate_reply_2": generate_reply_2,
+        "export_alpaca": export_alpaca
+    }
+    save_user_settings("datapersona", settings_to_save)
+
     background_tasks.add_task(run_tool_subprocess, "datapersona", job_id, config_dict)
     return {"job_id": job_id, "status": "starting"}
 
@@ -398,15 +435,24 @@ async def run_datapersona(
 async def run_databird(config: DataBirdConfig, background_tasks: BackgroundTasks):
     """Start DataBird job."""
     job_id = generate_job_id()
-    
+
     output_path = os.path.abspath(os.path.join(os.getcwd(), "output", "databird", f"{job_id}_{config.dataset_name}"))
 
     config_dict = config.dict()
     config_dict["job_id"] = job_id
     config_dict["output_path"] = output_path
-    
+
     job_dir = create_job_workspace(job_id, "databird", config.dataset_name, config_dict)
-    
+
+    # Save user settings for next time
+    settings_to_save = {
+        "dataset_size": config.dataset_size,
+        "clean_score": config.clean_score,
+        "full_auto": config.full_auto,
+        "manual_perspectives": config.manual_perspectives
+    }
+    save_user_settings("databird", settings_to_save)
+
     background_tasks.add_task(run_tool_subprocess, "databird", job_id, config_dict)
     return {"job_id": job_id, "status": "starting"}
 
@@ -488,6 +534,16 @@ async def run_dataqa(
         except:
             pass
 
+    # Save user settings for next time
+    settings_to_save = {
+        "auto_perspectives": auto_perspectives,
+        "confidence_threshold": confidence_threshold,
+        "use_persona": use_persona,
+        "persona_name": persona_name,
+        "manual_perspectives": manual_perspectives
+    }
+    save_user_settings("dataqa", settings_to_save)
+
     background_tasks.add_task(run_tool_subprocess, "dataqa", job_id, config_dict)
     return {"job_id": job_id, "status": "starting"}
 
@@ -538,6 +594,16 @@ async def run_datathink(
         "llm_settings": json.loads(llm_settings)
     }
 
+    # Save user settings for next time
+    settings_to_save = {
+        "save_interval": save_interval,
+        "thinking_temperature": thinking_temperature,
+        "response_temperature": response_temperature,
+        "use_persona": use_persona,
+        "persona_name": persona_name
+    }
+    save_user_settings("datathink", settings_to_save)
+
     background_tasks.add_task(run_tool_subprocess, "datathink", job_id, config_dict)
     return {"job_id": job_id, "status": "starting"}
 
@@ -571,6 +637,15 @@ async def run_dataconvo(
 
     with open(os.path.join(import_dir, file.filename), "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
+
+    # Save user settings for next time
+    settings_to_save = {
+        "save_interval": save_interval,
+        "round_weights": round_weights,
+        "use_persona": use_persona,
+        "persona_name": persona_name
+    }
+    save_user_settings("dataconvo", settings_to_save)
 
     background_tasks.add_task(run_tool_subprocess, "dataconvo", job_id, config_dict)
     return {"job_id": job_id, "status": "starting"}
@@ -661,6 +736,18 @@ async def list_jobs():
                 continue
     
     return {"jobs": sorted(jobs, key=lambda x: x["created_at"], reverse=True)}
+
+@app.get("/api/settings/{tool_name}")
+async def get_tool_settings(tool_name: str):
+    """Get saved settings for a specific tool."""
+    settings = load_user_settings()
+    return settings.get(tool_name, {})
+
+@app.post("/api/settings/{tool_name}")
+async def save_tool_settings(tool_name: str, settings: dict):
+    """Save settings for a specific tool."""
+    save_user_settings(tool_name, settings)
+    return {"status": "success"}
 
 @app.websocket("/ws/{job_id}")
 async def websocket_progress(websocket: WebSocket, job_id: str):
