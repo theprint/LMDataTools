@@ -5,6 +5,7 @@ Web interface for DataSynthesis Suite
 from datapersona import DEFAULT_CONFIG as DATAPERSONA_DEFAULTS
 from openai import OpenAI # Import OpenAI client for model listing
 from fastapi import FastAPI, BackgroundTasks, HTTPException, WebSocket, File, UploadFile, Form
+from starlette.websockets import WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
@@ -753,23 +754,31 @@ async def save_tool_settings(tool_name: str, settings: dict):
 async def websocket_progress(websocket: WebSocket, job_id: str):
     """WebSocket for real-time progress updates."""
     await websocket.accept()
-    
+
     try:
         while True:
             job_data = active_jobs.get(job_id)
             if job_data:
                 await websocket.send_json(job_data)
-            
+
             if job_data and job_data.get("status") in ["completed", "failed"]:
                 await asyncio.sleep(1)
                 break
-            
+
             await asyncio.sleep(1)
-    
+
+    except WebSocketDisconnect:
+        # Normal client disconnect - no error logging needed
+        pass
     except Exception as e:
-        print(f"WebSocket error: {e}")
+        print(f"WebSocket unexpected error: {e}")
     finally:
-        await websocket.close()
+        # Only close if not already closed
+        try:
+            if websocket.client_state.name != "DISCONNECTED":
+                await websocket.close()
+        except Exception:
+            pass  # Already closed or in invalid state
 
 @app.delete("/api/jobs/clear_failed")
 async def clear_failed_jobs():
