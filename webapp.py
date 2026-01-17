@@ -237,7 +237,7 @@ async def run_tool_subprocess(tool_name: str, job_id: str, config: dict):
         
         stdout_data = []
         stderr_data = []
-        
+
         async def read_stdout():
             while not process.stdout.at_eof():
                 line = await process.stdout.readline()
@@ -257,21 +257,24 @@ async def run_tool_subprocess(tool_name: str, job_id: str, config: dict):
                     'reformat': r"Reformatted entry (\d+) of (\d+)",
                 }
 
-                if tool_name in progress_patterns:
-                    pattern = progress_patterns[tool_name]
-                    match = re.search(pattern, line_text)
-                    if match:
-                        current, total = int(match.group(1)), int(match.group(2))
-                        if total > 0:
-                            progress = int((current / total) * 100)
-                            update_job_status(job_id, "running", progress)
-                
-                if tool_name == 'datapersona' and line_text.strip().endswith('.'):
-                     update_job_status(job_id, "running", active_jobs[job_id].get('progress', 0))
+                # Only update progress if still running (not completed/failed)
+                current_status = active_jobs.get(job_id, {}).get("status", "running")
+                if current_status == "running":
+                    if tool_name in progress_patterns:
+                        pattern = progress_patterns[tool_name]
+                        match = re.search(pattern, line_text)
+                        if match:
+                            current, total = int(match.group(1)), int(match.group(2))
+                            if total > 0:
+                                progress = int((current / total) * 100)
+                                update_job_status(job_id, "running", progress)
+
+                    if tool_name == 'datapersona' and line_text.strip().endswith('.'):
+                         update_job_status(job_id, "running", active_jobs[job_id].get('progress', 0))
 
                 stdout_data.append(line_text)
                 print(f"[{tool_name}] {line_text}")
-        
+
         async def read_stderr():
             while not process.stderr.at_eof():
                 line = await process.stderr.readline()
