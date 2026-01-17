@@ -2233,59 +2233,84 @@
         function updateJobDisplay(job) {
             const jobsList = document.getElementById('jobs-list');
             let jobDiv = document.getElementById(`job-${job.job_id}`);
-            
+
             // Remove empty state if present
             const emptyState = jobsList.querySelector('.empty-jobs');
             if (emptyState) {
                 emptyState.remove();
             }
-            
-            if (!jobDiv) {
+
+            const isNewJob = !jobDiv;
+
+            if (isNewJob) {
                 jobDiv = document.createElement('div');
                 jobDiv.id = `job-${job.job_id}`;
                 jobDiv.dataset.createdAt = job.created_at;
-                
+
                 // Insert at correct position (newest first)
                 const existingJobs = Array.from(jobsList.children);
                 const insertBefore = existingJobs.find(el => el.dataset.createdAt < job.created_at);
                 jobsList.insertBefore(jobDiv, insertBefore || null);
             }
-            
+
+            // Update class
             jobDiv.className = `job-item status-${job.status}`;
-            
-            const statusClass = job.status === 'running' ? 'running' : 
-                              job.status === 'completed' ? 'completed' : 
-                              job.status === 'failed' ? 'failed' : '';
-            
-            let actionsHTML = '';
-            let errorHTML = '';
-            if (job.status === 'completed') {
-                actionsHTML = `
-                    <button class="btn-small btn-download" onclick="downloadJob('${job.job_id}')">Download</button>
-                `;
-            }
-            if (job.status === 'failed') {
-                errorHTML = `<div class="error-message">Job failed. Check logs.</div>`;
-            }
-            
-            jobDiv.innerHTML = `
-                <div class="job-header">
-                    <span class="job-title">${job.dataset_name} (${job.tool})</span>
-                    <span class="job-status ${statusClass}">${job.status}</span>
-                </div>
-                <div class="job-id">${job.job_id}</div>
-                <div class="progress-bar">
-                    <div class="progress-fill" style="width: ${job.progress || 0}%"></div>
-                </div>
-                <div class="progress-text">${job.progress || 0}% complete</div>
-                <div class="job-actions">
-                    ${errorHTML}
-                    <div class="job-actions-buttons">
-                        ${actionsHTML}
-                        <button class="btn-small btn-delete" onclick="deleteJob('${job.job_id}')">Delete</button>
+
+            // Check if we need to update the HTML (avoid unnecessary DOM writes)
+            const currentStatus = jobDiv.dataset.status;
+            const currentProgress = jobDiv.dataset.progress;
+            const needsUpdate = isNewJob ||
+                               currentStatus !== job.status ||
+                               currentProgress !== String(job.progress || 0);
+
+            if (needsUpdate) {
+                jobDiv.dataset.status = job.status;
+                jobDiv.dataset.progress = job.progress || 0;
+
+                const statusClass = job.status === 'running' ? 'running' :
+                                  job.status === 'completed' ? 'completed' :
+                                  job.status === 'failed' ? 'failed' : '';
+
+                let actionsHTML = '';
+                let errorHTML = '';
+                if (job.status === 'completed') {
+                    actionsHTML = `
+                        <button class="btn-small btn-download" onclick="downloadJob('${job.job_id}')">Download</button>
+                    `;
+                }
+                if (job.status === 'failed') {
+                    errorHTML = `<div class="error-message">Job failed. Check logs.</div>`;
+                }
+
+                jobDiv.innerHTML = `
+                    <div class="job-header">
+                        <span class="job-title">${job.dataset_name} (${job.tool})</span>
+                        <span class="job-status ${statusClass}">${job.status}</span>
                     </div>
-                </div>
-            `;
+                    <div class="job-id">${job.job_id}</div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: ${job.progress || 0}%"></div>
+                    </div>
+                    <div class="progress-text">${job.progress || 0}% complete</div>
+                    <div class="job-actions">
+                        ${errorHTML}
+                        <div class="job-actions-buttons">
+                            ${actionsHTML}
+                            <button class="btn-small btn-delete" onclick="deleteJob('${job.job_id}')">Delete</button>
+                        </div>
+                    </div>
+                `;
+            } else {
+                // Just update the progress bar and text without full innerHTML rewrite
+                const progressFill = jobDiv.querySelector('.progress-fill');
+                const progressText = jobDiv.querySelector('.progress-text');
+                if (progressFill) {
+                    progressFill.style.width = `${job.progress || 0}%`;
+                }
+                if (progressText) {
+                    progressText.textContent = `${job.progress || 0}% complete`;
+                }
+            }
         }
         
         // Download job output
@@ -2622,8 +2647,18 @@
                         }
                     });
 
-                    // Update or add jobs
-                    data.jobs.forEach(updateJobDisplay);
+                    // Update or add jobs (skip completed/failed jobs to prevent flickering)
+                    data.jobs.forEach(job => {
+                        const existingDiv = document.getElementById(`job-${job.job_id}`);
+                        const isCompleted = existingDiv &&
+                                          (existingDiv.dataset.status === 'completed' ||
+                                           existingDiv.dataset.status === 'failed');
+
+                        // Only update if job doesn't exist or is still running
+                        if (!isCompleted) {
+                            updateJobDisplay(job);
+                        }
+                    });
                 }
             } catch (error) {
                 console.error('Error loading jobs:', error);
