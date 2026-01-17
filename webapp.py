@@ -280,7 +280,7 @@ async def run_tool_subprocess(tool_name: str, job_id: str, config: dict):
             
             with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
                 for file in os.listdir(actual_output_path):
-                    if file.endswith('.json') and file not in ['config.json', 'metadata.json']:
+                    if file.endswith('.json') and file != 'config.json':
                         file_path = os.path.join(actual_output_path, file)
                         zipf.write(file_path, arcname=file)
                         os.remove(file_path)
