@@ -20,6 +20,7 @@ from pathlib import Path
 
 import re
 app = FastAPI(title="LM Data Tools")
+app.mount("/static", StaticFiles(directory="webapp"), name="static")
 
 # Job tracking
 active_jobs: Dict[str, dict] = {}

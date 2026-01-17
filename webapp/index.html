@@ -16,7 +16,7 @@
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
             background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
-            min-height: 100vh;
+            background-image: url("/static/lmtools_background.png");
             padding: 20px;
         }
 
@@ -1491,6 +1491,14 @@
                             <p style="color: #8a93a2; font-size: 12px; margin-top: 5px;">Supports Alpaca, ShareGPT, and Q&A formats</p>
                         </div>
                         <div class="form-group">
+                            <label>Reasoning Depth</label>
+                            <select id="reasoning_level">
+                                <option value="low">Low - Brief approach outline</option>
+                                <option value="medium" selected>Medium - Approach + challenges</option>
+                                <option value="high">High - Full analysis with edge cases</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
                             <label for="thinking_temperature">Thinking Temperature: <span id="thinking-temp-value">0.7</span></label>
                             <div class="slider-group">
                                 <input type="range" id="thinking_temperature" min="0" max="1" step="0.01" value="0.7" oninput="document.getElementById('thinking-temp-value').textContent = this.value">
@@ -2127,6 +2135,7 @@
                     formData.append('save_interval', config.save_interval);
                     formData.append('thinking_temperature', config.thinking_temperature);
                     formData.append('response_temperature', config.response_temperature);
+                    formData.append('reasoning_level', config.reasoning_level);
                     formData.append('use_persona', config.use_persona);
                     formData.append('persona_name', config.persona_name || '');
                     formData.append('llm_settings', JSON.stringify(config.llm_settings));

@@ -35,6 +35,7 @@ DEFAULT_CONFIG = {
     "DATASET_NAME": "my-thinking-dataset",
     "JOB_ID": "default-job",
     "IMPORT_PATH": "import",
+    "REASONING_LEVEL": "medium",
     "SAVE_INTERVAL": 50,
     "USE_PERSONA": False,
     "PERSONA_NAME": "",
@@ -59,6 +60,7 @@ if os.path.exists(config_file):
 DATASET_NAME = DEFAULT_CONFIG["DATASET_NAME"]
 JOB_ID = DEFAULT_CONFIG["JOB_ID"]
 IMPORT_PATH = DEFAULT_CONFIG["IMPORT_PATH"]
+REASONING_LEVEL = DEFAULT_CONFIG["REASONING_LEVEL"]
 SAVE_INTERVAL = DEFAULT_CONFIG["SAVE_INTERVAL"]
 USE_PERSONA = DEFAULT_CONFIG.get("USE_PERSONA", False)
 PERSONA_NAME = DEFAULT_CONFIG.get("PERSONA_NAME", "")
@@ -150,13 +152,13 @@ def generate_thinking(client, query, level="medium"):
     Returns:
         Thinking/reasoning text
     """
-    thinking_steps = "- What is the best approach to consider?\n"
+    thinking_steps = "- Briefly outline the best approach to consider, and why?\n"
     thinking_tokens = 600
     if level == "medium":
-        thinking_steps += "- What are the key challenges or complexities in this query?\n"
+        thinking_steps += "- If any, what are the major challenges or complexities of this query?\n"
         thinking_tokens = 1200
     elif level == "high":
-        thinking_steps += "- What are the key challenges or complexities in this query?\n- What caveats, edge cases, or important considerations should be kept in mind?\n"
+        thinking_steps += "- If any, what are the major challenges or complexities of this query?\n- What caveats, edge cases, or important considerations should be kept in mind? For each such consideration, explain why it matters and how it should be handled.\n"
         thinking_tokens = 3000
 
     thinking_prompt = (
@@ -173,7 +175,7 @@ def generate_thinking(client, query, level="medium"):
     thinking = client.call(
         prompt=thinking_prompt,
         temperature=THINKING_TEMPERATURE,
-        max_tokens=thinking_tokens
+        max_tokens=thinking_tokens,
     )
     
     return thinking.strip()
@@ -296,7 +298,7 @@ if __name__ == "__main__":
             
             # Step 1: Generate thinking (no persona - internal reasoning)
             print("  - Generating reasoning...")
-            thinking = generate_thinking(client, query)
+            thinking = generate_thinking(client, query, level=REASONING_LEVEL)
             print(f"    Reasoning: {len(thinking)} chars")
             
             # Step 2: Generate response with thinking (persona applied here if enabled)
