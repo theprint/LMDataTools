@@ -305,7 +305,7 @@ async def run_tool_subprocess(tool_name: str, job_id: str, config: dict):
 
                 with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
                     for file in os.listdir(actual_output_path):
-                        if file.endswith('.json') and file != 'config.json':
+                        if file.endswith('.json') and file not in ['config.json', 'metadata.json']:
                             file_path = os.path.join(actual_output_path, file)
                             zipf.write(file_path, arcname=file)
                             os.remove(file_path)
@@ -313,6 +313,12 @@ async def run_tool_subprocess(tool_name: str, job_id: str, config: dict):
                 print(f"[{tool_name}] Job {job_id} completed successfully, updating status...")
                 update_job_status(job_id, "completed", 100)
                 print(f"[{tool_name}] Job {job_id} status updated to completed")
+
+                # Now add metadata.json to zip after status is updated
+                metadata_file = os.path.join(job_dir, "metadata.json")
+                if os.path.exists(metadata_file):
+                    with zipfile.ZipFile(zip_path, 'a') as zipf:
+                        zipf.write(metadata_file, arcname="metadata.json")
             except Exception as zip_error:
                 print(f"[{tool_name}] Error creating zip for job {job_id}: {zip_error}")
                 # Still mark as completed even if zip fails - data is there
