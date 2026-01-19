@@ -217,8 +217,8 @@ def main():
                         prompt=prompt,
                         stream=True,
                         system_prompt=ai_role["description"],
-                        temperature=0.4,
-                        top_p=0.9,
+                        temperature=0.5,
+                        top_p=0.95,
                         max_tokens=6000,
                         return_dict=True
                     )
