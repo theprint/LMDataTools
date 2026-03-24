@@ -1,0 +1,193 @@
+<!-- webapp/index.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>LMDataTools</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.css">
+    <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header" id="app-header">
+            <h1>LM Data Tools</h1>
+            <p>Synthetic data generation tools developed by <a href="https://rasmusrasmussen.com" target="_blank">Rasmus Rasmussen</a>.
+                <br>Works with any LLM provider or local AI server that supports the OpenAI sdk. <a href="https://github.com/theprint/LMDataTools" title="LM Data Tools on Github"><strong>LM Data Tools</strong></a> is released under the <a href="https://www.apache.org/licenses/LICENSE-2.0" target="_blank">Apache 2.0 license</a>.</p>
+        </div>
+        
+        <!-- Tool Selector -->
+        <div class="tool-selector">
+            <div class="tool-buttons">
+                <button class="tool-btn" data-tool="databird" title="Procedural Q&A generation">DataBird</button>
+                <button class="tool-btn" data-tool="datapersona" title="Rewrite with personas">DataPersona</button>
+                <button class="tool-btn" data-tool="dataqa" title="Web scraping to Q&A">DataQA</button>
+                <button class="tool-btn" data-tool="datawriter" title="Generate documents">DataWriter</button>
+                <button class="tool-btn" data-tool="dataconvo" title="Expand conversations">DataConvo</button>
+                <button class="tool-btn" data-tool="datathink" title="Enhance with reasoning">DataThink</button>
+                <div class="tool-separator"></div>
+                <button class="tool-btn" data-tool="datamix" title="Mix HuggingFace datasets">DataMix</button>
+                <button class="tool-btn" data-tool="reformat" title="Reformat datasets">Reformat</button>
+            </div>
+            <div class="right-aligned-buttons" style="display: flex; align-items: center; gap: 12px;">
+                <!-- "Start Job" button -->
+                <button class="btn-primary" id="start-job-btn" style="display: none; border: 2px solid transparent; margin-top: 0;" disabled>Start Job</button>
+                <button class="tool-btn btn-secondary" id="settings-btn">Settings</button>
+            </div>
+        </div>
+        
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Config Section -->
+            <div class="config-section">
+                <div id="config-content"></div>
+            </div>
+            
+            <!-- Progress/Log Section -->
+            <div class="progress-section">
+                <div class="progress-header">
+                    <h2>Progress & History</h2>
+                    <button class="btn-small btn-delete" id="clear-failed-jobs-btn" style="margin-left: auto;">Clear Failed</button>
+                </div>
+                <div class="progress-content" id="jobs-list">
+                    <div class="empty-jobs">No jobs yet</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Popover -->
+    <div class="popover-overlay" id="settings-popover">
+        <div class="popover-content">
+            <div class="popover-header">
+                <h2>Settings</h2>
+                <button class="close-btn" id="close-popover-btn">×</button>
+            </div>
+
+            <!-- Tab bar -->
+            <div class="settings-tabs">
+                <button class="settings-tab active" data-tab="llm-panel">LLM</button>
+                <button class="settings-tab" data-tab="prefs-panel">Preferences</button>
+                <button class="settings-tab" data-tab="personas-panel">Personas</button>
+            </div>
+
+            <!-- ── LLM Tab ── -->
+            <div class="settings-panel active" id="llm-panel">
+                <div class="form-group">
+                    <label for="llm_provider">LLM Provider</label>
+                    <div style="display: flex; gap: 8px; align-items: stretch;">
+                        <select id="llm_provider" style="flex: 1;">
+                            <option value="openai">OpenAI</option>
+                            <option value="openrouter">OpenRouter</option>
+                            <option value="gemini">Google Gemini</option>
+                            <option value="other">Ollama / Local</option>
+                        </select>
+                        <button type="button" id="add-provider-btn" class="btn-secondary" style="padding: 0 14px; margin-top: 0; font-size: 20px; line-height: 1; border-radius: 8px;" title="Add custom provider">+</button>
+                    </div>
+                </div>
+                <!-- Add Provider Form -->
+                <div id="add-provider-form" style="display: none; background: rgba(0, 212, 255, 0.05); border: 1px solid rgba(0, 212, 255, 0.2); border-radius: 8px; padding: 14px; margin-bottom: 10px;">
+                    <div style="font-size: 13px; font-weight: 600; color: #00d4ff; margin-bottom: 10px;">Add Custom Provider</div>
+                    <div class="form-group" style="margin-bottom: 8px;">
+                        <label for="new_provider_name" style="font-size: 12px;">Provider Name</label>
+                        <input type="text" id="new_provider_name" placeholder="e.g. My LLM Server">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 8px;">
+                        <label for="new_provider_base_url" style="font-size: 12px;">Base URL</label>
+                        <input type="text" id="new_provider_base_url" placeholder="http://localhost:1234/v1">
+                    </div>
+                    <div style="display: flex; gap: 8px; margin-top: 8px;">
+                        <button type="button" id="confirm-add-provider-btn" class="btn-primary" style="margin-top: 0; flex: 1;">Add Provider</button>
+                        <button type="button" id="cancel-add-provider-btn" class="btn-secondary" style="margin-top: 0; flex: 1; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 13px;">Cancel</button>
+                    </div>
+                    <div id="add-provider-error" style="display: none; color: #ff4757; font-size: 12px; margin-top: 6px;"></div>
+                </div>
+                <div class="form-group" id="base-url-group">
+                    <label for="base_url">Base URL</label>
+                    <input type="text" id="base_url" placeholder="http://localhost:1234/v1">
+                </div>
+                <div class="form-group">
+                    <label for="api_key">API Key</label>
+                    <input type="password" id="api_key" placeholder="Enter your API key">
+                </div>
+                <div class="form-group" id="llm-model-group">
+                    <label for="llm_model">Model Name</label>
+                    <select id="llm_model" class="model-select">
+                        <option value="">Loading models...</option>
+                    </select>
+                    <input type="text" id="llm_model_text" class="model-text-input" placeholder="gpt-4, gemini-pro, etc." style="display: none;">
+                </div>
+                <div id="model-loading-error" style="display: none; color: #ff4757; font-size: 13px; margin-top: 10px; padding: 10px; border: 1px solid rgba(255, 71, 87, 0.3); border-radius: 4px; background: rgba(255, 71, 87, 0.1);"></div>
+                <div class="form-group">
+                    <label for="hugging_face_api_key">Hugging Face API Key</label>
+                    <input type="password" id="hugging_face_api_key" placeholder="Enter your Hugging Face API key">
+                </div>
+                <button class="btn-primary" id="save-settings-btn">Save LLM Settings</button>
+            </div>
+
+            <!-- ── Preferences Tab ── -->
+            <div class="settings-panel" id="prefs-panel">
+                <div class="form-group">
+                    <label for="pref_output_format">Preferred Output Format</label>
+                    <select id="pref_output_format">
+                        <option value="alpaca">Alpaca (instruction / input / output)</option>
+                        <option value="sharegpt">ShareGPT (conversations)</option>
+                        <option value="qa">Q&amp;A (question / answer)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="pref_default_persona">Default Persona</label>
+                    <select id="pref_default_persona">
+                        <option value="">(none)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="pref_include_reasoning" style="margin-right:6px;">
+                        Include &lt;think&gt; reasoning blocks in DataThink output
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label for="pref_default_temperature">Default Temperature: <span id="pref_temp_display">0.7</span></label>
+                    <input type="range" id="pref_default_temperature" min="0" max="1" step="0.05" value="0.7"
+                           oninput="document.getElementById('pref_temp_display').textContent = this.value">
+                </div>
+                <div class="form-group">
+                    <label for="pref_save_interval">Default Save Interval</label>
+                    <input type="number" id="pref_save_interval" value="250" min="10" max="5000">
+                </div>
+                <button class="btn-primary" id="save-prefs-btn">Save Preferences</button>
+            </div>
+
+            <!-- ── Personas Tab ── -->
+            <div class="settings-panel" id="personas-panel">
+                <div class="persona-list" id="persona-list">
+                    <p style="color:#8899aa;font-size:13px;">Loading personas…</p>
+                </div>
+                <button class="btn-primary" id="add-persona-btn" style="margin-bottom:10px;">+ New Persona</button>
+                <!-- Inline editor (hidden by default) -->
+                <div class="persona-editor" id="persona-editor" style="display:none;">
+                    <input type="hidden" id="persona-edit-original-name">
+                    <div class="form-group">
+                        <label for="persona-edit-name">Name</label>
+                        <input type="text" id="persona-edit-name" placeholder="Persona name">
+                    </div>
+                    <div class="form-group">
+                        <label for="persona-edit-desc">Description / System Prompt</label>
+                        <textarea id="persona-edit-desc" placeholder="Describe the persona…"></textarea>
+                    </div>
+                    <div class="persona-editor-btns">
+                        <button class="btn-primary" id="persona-save-btn">Save</button>
+                        <button class="btn-secondary" id="persona-cancel-btn">Cancel</button>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.js"></script>
+    <script src="/static/app.js"></script>
+</body>
+</html>

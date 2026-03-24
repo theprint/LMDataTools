@@ -1,0 +1,15 @@
+.env
+!.env.example
+
+/jobs/*
+/__pycache__/
+
+# Local development files
+AGENTS.md
+CLAUDE.md
+.claude
+.claire
+*.pyc
+*.egg-info/
+dist/
+build/

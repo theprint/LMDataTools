@@ -1,0 +1,13 @@
+# d:\PythonProjects\DataToolbox\docker-compose.yml
+version: '3.8'
+services:
+  webapp:
+    build: .
+    container_name: LMDataTools
+    ports:
+      - "8910:8910"
+    volumes:
+      - ./jobs:/app/jobs
+    # You can pass environment variables for API keys here
+    env_file:
+      - .env
