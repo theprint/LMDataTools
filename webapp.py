@@ -37,7 +37,7 @@ async def recover_stale_jobs():
             with open(metadata_file) as f:
                 meta = json.load(f)
             if meta.get("status") == "running":
-                meta["status"] = "failed"
+                meta["status"] = "cancelled"
                 meta["updated_at"] = datetime.now().isoformat()
                 meta["error"] = "Job interrupted: server was restarted while this job was running."
                 with open(metadata_file, "w") as f:
@@ -48,6 +48,9 @@ async def recover_stale_jobs():
 
 # Job tracking
 active_jobs: Dict[str, dict] = {}
+# Process handles for running jobs — kept separate because they are not JSON-serialisable.
+# Keyed by job_id; cleaned up when the subprocess exits or is cancelled.
+active_processes: Dict[str, asyncio.subprocess.Process] = {}
 JOBS_DIR = "./jobs"
 os.makedirs(JOBS_DIR, exist_ok=True)
 
@@ -500,6 +503,28 @@ def generate_standard_readme(tool_name: str, dataset_name: str, data_file_conten
     return "\n".join(yaml_lines + body)
 
 
+def _patch_metadata_tokens(job_id: str, prompt_tokens: int, completion_tokens: int):
+    """Persist token-usage counts into a job's metadata.json (best-effort)."""
+    try:
+        metadata_file = os.path.join(JOBS_DIR, job_id, "metadata.json")
+        if not os.path.exists(metadata_file):
+            return
+        with open(metadata_file) as f:
+            meta = json.load(f)
+        meta["token_usage"] = {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": prompt_tokens + completion_tokens,
+        }
+        meta["updated_at"] = datetime.now().isoformat()
+        with open(metadata_file, "w") as f:
+            json.dump(meta, f, indent=2)
+        if job_id in active_jobs:
+            active_jobs[job_id]["token_usage"] = meta["token_usage"]
+    except Exception as e:
+        print(f"[tokens] Could not save token usage for {job_id}: {e}")
+
+
 def update_job_status(job_id: str, status: str, progress: int = None):
     """Update job status."""
     job_dir = os.path.join(JOBS_DIR, job_id)
@@ -608,9 +633,25 @@ async def run_tool_subprocess(tool_name: str, job_id: str, config: dict):
             cwd=job_dir,
             env=env
         )
-        
+
+        # Register the process so it can be cancelled via the cancel endpoint.
+        active_processes[job_id] = process
+
         stdout_data = []
         stderr_data = []
+
+        # Legacy per-tool progress patterns kept as fallbacks alongside the
+        # unified "PROGRESS {current}/{total}" protocol.
+        _legacy_progress_patterns = {
+            'datapersona': r"Entry (\d+) of (\d+)",
+            'datawriter':  r"Generating document (\d+) of (\d+)",
+            'dataqa':      r"Progress: (\d+)/(\d+)",
+            'datamix':     r"Taking (\d+) of (\d+) entries",
+            'dataconvo':   r"Processing entry (\d+) of (\d+)",
+            'datathink':   r"Processing entry (\d+) of (\d+)",
+            'reformat':    r"Reformatted entry (\d+) of (\d+)",
+            # databird is handled by "PROGRESS X/Y" now
+        }
 
         async def read_stdout():
             while not process.stdout.at_eof():
@@ -619,45 +660,36 @@ async def run_tool_subprocess(tool_name: str, job_id: str, config: dict):
                     break
                 line_text = line.decode(errors='ignore').strip()
 
-                progress_patterns = {
-                    'datapersona': r"Entry (\d+) of (\d+)",
-                    'databird': None,  # handled separately below with phase splitting
-                    'datawriter': r"Generating document (\d+) of (\d+)",
-                    'dataqa': r"Progress: (\d+)/(\d+)",
-                    'datamix': r"Taking (\d+) of (\d+) entries",
-                    'dataconvo': r"Processing entry (\d+) of (\d+)",
-                    'datathink': r"Processing entry (\d+) of (\d+)",
-                    'reformat': r"Reformatted entry (\d+) of (\d+)",
-                }
-
-                # Only update progress if still running (not completed/failed)
+                # Only update progress while the job is still running
                 current_status = active_jobs.get(job_id, {}).get("status", "running")
                 if current_status == "running":
-                    if tool_name == 'databird':
-                        # Questions = 0–49%, Answers = 50–99% (100% only on confirmed completion)
-                        q_match = re.search(r"Question (\d+)/(\d+)", line_text)
-                        a_match = re.search(r"Answer (\d+)/(\d+)", line_text)
-                        if q_match:
-                            current, total = int(q_match.group(1)), int(q_match.group(2))
-                            if total > 0:
-                                progress = int((current / total) * 49)
-                                update_job_status(job_id, "running", progress)
-                        elif a_match:
-                            current, total = int(a_match.group(1)), int(a_match.group(2))
-                            if total > 0:
-                                progress = 50 + int((current / total) * 49)
-                                update_job_status(job_id, "running", progress)
-                    elif tool_name in progress_patterns and progress_patterns[tool_name]:
-                        pattern = progress_patterns[tool_name]
-                        match = re.search(pattern, line_text)
-                        if match:
-                            current, total = int(match.group(1)), int(match.group(2))
-                            if total > 0:
-                                progress = int((current / total) * 100)
-                                update_job_status(job_id, "running", progress)
+                    # ── Unified progress protocol (all tools emit this going forward) ──
+                    # Format:  PROGRESS {current}/{total} [optional phase label]
+                    unified_match = re.match(r"PROGRESS (\d+)/(\d+)", line_text)
+                    if unified_match:
+                        current, total = int(unified_match.group(1)), int(unified_match.group(2))
+                        if total > 0:
+                            progress = int((current / total) * 100)
+                            update_job_status(job_id, "running", progress)
+                    else:
+                        # ── Legacy patterns (backward-compatible fallback) ──────────
+                        pattern = _legacy_progress_patterns.get(tool_name)
+                        if pattern:
+                            m = re.search(pattern, line_text)
+                            if m:
+                                current, total = int(m.group(1)), int(m.group(2))
+                                if total > 0:
+                                    progress = int((current / total) * 100)
+                                    update_job_status(job_id, "running", progress)
 
-                    if tool_name == 'datapersona' and line_text.strip().endswith('.'):
-                         update_job_status(job_id, "running", active_jobs[job_id].get('progress', 0))
+                    # ── Token-usage summary line emitted by tools at completion ──
+                    # Format:  TOKENS {prompt}/{completion}
+                    token_match = re.match(r"TOKENS (\d+)/(\d+)", line_text)
+                    if token_match:
+                        prompt_tok = int(token_match.group(1))
+                        completion_tok = int(token_match.group(2))
+                        # Persist in metadata so the UI and README can display it
+                        _patch_metadata_tokens(job_id, prompt_tok, completion_tok)
 
                 stdout_data.append(line_text)
                 print(f"[{tool_name}] {line_text}")
@@ -672,8 +704,11 @@ async def run_tool_subprocess(tool_name: str, job_id: str, config: dict):
                 print(f"[{tool_name} ERROR] {line_text}")
         
         await asyncio.gather(read_stdout(), read_stderr())
-        
+
         await process.wait()
+
+        # Deregister process handle now that the subprocess has exited.
+        active_processes.pop(job_id, None)
         
         with open(stdout_log, 'w', encoding='utf-8') as f:
             f.write('\n'.join(stdout_data))
@@ -747,6 +782,7 @@ async def run_tool_subprocess(tool_name: str, job_id: str, config: dict):
                 f.write(f"STDERR:\n{chr(10).join(stderr_data)}")
     
     except Exception as e:
+        active_processes.pop(job_id, None)
         update_job_status(job_id, "failed", 0)
         with open(os.path.join(job_dir, "error.log"), 'w', encoding='utf-8') as f:
             f.write(f"Exception: {str(e)}\n")
@@ -1239,6 +1275,33 @@ async def resume_job(job_id: str, body: dict, background_tasks: BackgroundTasks)
 
     background_tasks.add_task(run_tool_subprocess, tool_name, job_id, config)
     return {"job_id": job_id, "status": "running"}
+
+
+@app.post("/api/jobs/{job_id}/cancel")
+async def cancel_job(job_id: str):
+    """Cancel a running job by terminating its subprocess.
+
+    The job directory and any partial output are preserved so the user can
+    inspect or resume from the last checkpoint.
+    """
+    process = active_processes.get(job_id)
+    if process is None:
+        # Check whether the job even exists before returning 404
+        metadata_file = os.path.join(JOBS_DIR, job_id, "metadata.json")
+        if not os.path.exists(metadata_file):
+            raise HTTPException(status_code=404, detail="Job not found")
+        raise HTTPException(status_code=409, detail="No running process found for this job")
+
+    try:
+        process.terminate()
+    except ProcessLookupError:
+        # Process already exited between the lookup and the terminate call
+        pass
+
+    active_processes.pop(job_id, None)
+    update_job_status(job_id, "cancelled", active_jobs.get(job_id, {}).get("progress", 0))
+    return {"job_id": job_id, "status": "cancelled"}
+
 
 @app.get("/api/jobs")
 async def list_jobs():

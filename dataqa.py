@@ -598,7 +598,9 @@ if __name__ == "__main__":
                     "answer": answer,
                     "source": source,
                     "confidence": confidence,
-                    "keywords": keywords
+                    "keywords": keywords,
+                    "_tool": "dataqa",
+                    "_version": "2.0",
                 }
                 
                 all_qa_data.append(entry)
@@ -656,9 +658,13 @@ if __name__ == "__main__":
         if os.path.exists(dataset_file):
             os.remove(dataset_file)
         
+        usage = client.get_usage_stats()
+        print(f"TOKENS {usage['prompt_tokens']}/{usage['completion_tokens']}", flush=True)
+
         print(f"\nFinal dataset: {final_file}")
         print(f"README: {readme_file}")
         print(f"Total Q&A pairs: {len(all_qa_data)}")
+        print(f"Token usage: {usage['total_tokens']:,} total ({usage['prompt_tokens']:,} prompt / {usage['completion_tokens']:,} completion)")
         print("\n" + "=" * 60)
         print("DataQA Complete!")
         print("=" * 60)

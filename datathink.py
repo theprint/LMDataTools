@@ -339,11 +339,19 @@ if __name__ == "__main__":
             for key in ("instruction", "input", "output", "conversations"):
                 entry.pop(key, None)
 
+            # Provenance fields (added/updated on every processed entry)
+            entry["_tool"] = "datathink"
+            entry["_version"] = "2.0"
+
             processor.checkpoint(i)
             print()
+
+    usage = client.get_usage_stats()
+    print(f"TOKENS {usage['prompt_tokens']}/{usage['completion_tokens']}", flush=True)
 
     print("\n" + "=" * 60)
     print("DataThink Complete!")
     print(f"Output:  {output_file}")
     print(f"Entries: {len(processor.data)}")
+    print(f"Tokens:  {usage['total_tokens']:,} total ({usage['prompt_tokens']:,} prompt / {usage['completion_tokens']:,} completion)")
     print("=" * 60)

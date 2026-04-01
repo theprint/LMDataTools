@@ -131,7 +131,9 @@ if __name__ == "__main__":
             "topic": topic_string,
             "tier": tier,
             "prompt": user_prompt,
-            "text": response
+            "text": response,
+            "_tool": "datawriter",
+            "_version": "2.0",
         }
         
         print(f"Generated a tier {tier} {doc_type}:")
@@ -185,5 +187,9 @@ if __name__ == "__main__":
 
     save_json(all_entries, filepath)
 
+    usage = client.get_usage_stats()
+    print(f"TOKENS {usage['prompt_tokens']}/{usage['completion_tokens']}", flush=True)
+
     print(f"\n=== Saved {DOCUMENT_COUNT} generated documents ===")
     print(f"File: {filepath}")
+    print(f"Token usage: {usage['total_tokens']:,} total ({usage['prompt_tokens']:,} prompt / {usage['completion_tokens']:,} completion)")

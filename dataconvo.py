@@ -136,7 +136,11 @@ def main():
             {"from": "human" if turn["role"] == "user" else "gpt", "value": turn["content"]}
             for turn in conversation_history
         ]
-        expanded_conversations.append({"conversations": sharegpt_conversation})
+        expanded_conversations.append({
+            "conversations": sharegpt_conversation,
+            "_tool": "dataconvo",
+            "_version": "2.0",
+        })
 
         # Save checkpoint
         if (i + 1) % cfg.get("SAVE_INTERVAL", 100) == 0:
@@ -153,8 +157,11 @@ def main():
     if os.path.exists(checkpoint_path):
         os.remove(checkpoint_path)
 
+    usage = client.get_usage_stats()
+    print(f"TOKENS {usage['prompt_tokens']}/{usage['completion_tokens']}", flush=True)
     print(f"\n[dataconvo] Conversation generation complete.")
     print(f"[dataconvo] Dataset saved to {output_path}")
+    print(f"[dataconvo] Token usage: {usage['total_tokens']:,} total ({usage['prompt_tokens']:,} prompt / {usage['completion_tokens']:,} completion)")
 
 if __name__ == '__main__':
     main()
