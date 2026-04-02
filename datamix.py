@@ -309,6 +309,8 @@ def process_dataset(dataset_name, weight, subset, hf_token, seed, total_samples)
             "instruction": instruction,
             "input":       input_text,
             "output":      output,
+            "_tool":       "datamix",
+            "_version":    "2.0",
         })
 
     print(f"  Kept {len(processed)} valid entries")

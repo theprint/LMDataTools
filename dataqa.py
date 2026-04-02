@@ -39,22 +39,12 @@ def read_file_content(file_path: str) -> str:
     file_path = file_path.strip().strip('"').strip("'")
     
     print(f"  Reading file: {file_path}")
-    print(f"  Debug - Received path: '{file_path}'")
-    print(f"  Debug - Path length: {len(file_path)}")
-    
+
     try:
         path = Path(file_path)
-        print(f"  Debug - Resolved path: '{path}'")
-        print(f"  Debug - Path exists: {path.exists()}")
-        print(f"  Debug - Is absolute: {path.is_absolute()}")
-        
+
         if not path.exists():
             print(f"  Error: File not found: {file_path}")
-            # Try to show what files ARE in the parent directory
-            parent = path.parent
-            if parent.exists():
-                print(f"  Debug - Parent directory exists: {parent}")
-                print(f"  Debug - Files in parent: {list(parent.iterdir())[:5]}")
             return None
         
         # Read file based on extension
@@ -598,7 +588,9 @@ if __name__ == "__main__":
                     "answer": answer,
                     "source": source,
                     "confidence": confidence,
-                    "keywords": keywords
+                    "keywords": keywords,
+                    "_tool": "dataqa",
+                    "_version": "2.0",
                 }
                 
                 all_qa_data.append(entry)
@@ -656,9 +648,13 @@ if __name__ == "__main__":
         if os.path.exists(dataset_file):
             os.remove(dataset_file)
         
+        usage = client.get_usage_stats()
+        print(f"TOKENS {usage['prompt_tokens']}/{usage['completion_tokens']}", flush=True)
+
         print(f"\nFinal dataset: {final_file}")
         print(f"README: {readme_file}")
         print(f"Total Q&A pairs: {len(all_qa_data)}")
+        print(f"Token usage: {usage['total_tokens']:,} total ({usage['prompt_tokens']:,} prompt / {usage['completion_tokens']:,} completion)")
         print("\n" + "=" * 60)
         print("DataQA Complete!")
         print("=" * 60)

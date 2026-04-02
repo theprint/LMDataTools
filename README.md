@@ -7,8 +7,12 @@ This is a collection of data synthesis tools for generating training data for fi
 *   **Web-Based UI**: A clean and simple interface built with FastAPI to configure and run data synthesis jobs.
 *   **Asynchronous Job Processing**: Handles multiple jobs in the background without blocking the UI.
 *   **Real-Time Progress Tracking**: Monitor the status and progress of running jobs in real-time.
+*   **Job Cancellation**: Cancel any running job from the UI; the subprocess is cleanly terminated and the job is marked as cancelled.
+*   **Token Usage Tracking**: Completed jobs display total prompt and completion token counts in the UI and persist them in `metadata.json`.
+*   **Schema Provenance**: Every output entry includes `_tool` and `_version` fields for traceability when mixing datasets.
+*   **Automatic Retry**: Transient LLM errors (rate limits, timeouts, 5xx) are retried up to 3 times with jittered exponential backoff.
 *   **Modular Toolset**: A suite of distinct tools for different synthetic data needs.
-*   **Flexible LLM Configuration**: Supports various LLM providers, including OpenAI, Hugging Face, and local models (e.g., via LM Studio, Ollama).
+*   **Flexible LLM Configuration**: Supports various LLM providers, including OpenAI, Gemini, OpenRouter, and local models (e.g., via LM Studio, Ollama).
 *   **Secure Credential Management**: API keys and other sensitive information are handled securely and not exposed in configuration files.
 
 ## The Tools

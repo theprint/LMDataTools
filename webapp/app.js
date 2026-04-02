@@ -1699,9 +1699,17 @@ let currentTool = null;
 
             jobDiv.className = `job-item status-${job.status}`;
 
-            const statusClass = job.status === 'running' ? 'running' :
-                              job.status === 'completed' ? 'completed' :
-                              job.status === 'failed' ? 'failed' : '';
+            const statusClass = job.status === 'running'    ? 'running'   :
+                              job.status === 'completed'  ? 'completed' :
+                              job.status === 'failed'     ? 'failed'    :
+                              job.status === 'cancelled'  ? 'failed'    : '';
+
+            // Build the token-usage badge (shown on completed jobs when available)
+            let tokenBadge = '';
+            if (job.token_usage && job.token_usage.total_tokens > 0) {
+                const total = job.token_usage.total_tokens.toLocaleString();
+                tokenBadge = `<span class="token-badge" title="Prompt: ${job.token_usage.prompt_tokens.toLocaleString()} / Completion: ${job.token_usage.completion_tokens.toLocaleString()}">⚡ ${total} tokens</span>`;
+            }
 
             let actionsHTML = '';
             let errorHTML = '';
@@ -1710,17 +1718,28 @@ let currentTool = null;
                     <button class="btn-small btn-download" onclick="downloadJob('${job.job_id}')">Download</button>
                 `;
             }
-            if (job.status === 'failed') {
+            if (job.status === 'running' || job.status === 'starting') {
+                actionsHTML = `
+                    <button class="btn-small btn-cancel" onclick="cancelJob('${job.job_id}')">Cancel</button>
+                `;
+            }
+            if (job.status === 'failed' || job.status === 'cancelled') {
                 actionsHTML = `
                     <button class="btn-small btn-resume" onclick="resumeJob('${job.job_id}')">Resume</button>
                 `;
-                errorHTML = `<div class="error-message">Job failed. Resume will continue from the last checkpoint.</div>`;
+                const msg = job.status === 'cancelled'
+                    ? 'Job was cancelled. Resume will continue from the last checkpoint.'
+                    : 'Job failed. Resume will continue from the last checkpoint.';
+                errorHTML = `<div class="error-message">${msg}</div>`;
             }
 
             jobDiv.innerHTML = `
                 <div class="job-header">
                     <span class="job-title">${job.dataset_name} (${job.tool})</span>
-                    <span class="job-status ${statusClass}">${job.status}</span>
+                    <div class="job-header-right">
+                        ${tokenBadge}
+                        <span class="job-status ${statusClass}">${job.status}</span>
+                    </div>
                 </div>
                 <div class="job-id">${job.job_id}</div>
                 <div class="progress-bar">
@@ -1740,6 +1759,22 @@ let currentTool = null;
         // Download job output
         async function downloadJob(jobId) {
             window.location.href = `/api/jobs/${jobId}/download`;
+        }
+
+        // Cancel a running job
+        async function cancelJob(jobId) {
+            if (!confirm('Cancel this job? Partial output will be preserved and you can resume later.')) return;
+            try {
+                const response = await fetch(`/api/jobs/${jobId}/cancel`, { method: 'POST' });
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Failed to cancel job');
+                }
+                loadJobs();
+            } catch (error) {
+                alert(`Error cancelling job: ${error.message}`);
+                console.error('Cancel error:', error);
+            }
         }
 
         // Resume a failed job from its last checkpoint

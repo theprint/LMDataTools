@@ -2,14 +2,26 @@
 !.env.example
 
 /jobs/*
-/__pycache__/
+/jobs-v2/*
 
-# Local development files
+# Python bytecode — all subdirectories
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Runtime-generated files (created by the webapp at startup)
+user_settings.json
+
+# v2-dev testing artifacts (delete after merging to master)
+docker-compose.v2-dev.yml
+watch_and_launch_v2.ps1
+v2-launch.log
+
+# Local dev / AI assistant config
 AGENTS.md
 CLAUDE.md
 .claude
 .claire
-*.pyc
-*.egg-info/
-dist/
-build/

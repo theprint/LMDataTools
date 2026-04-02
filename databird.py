@@ -11,9 +11,7 @@ Pipeline:
 
 import os
 import re
-import math
 import sys
-import time
 import random
 import json
 import ast
@@ -24,6 +22,7 @@ from datacore.personas.generator import PersonaGenerator
 from datacore.personas.loader import get_persona
 from datacore.personas.prompt_manager import inject_persona_into_prompt
 from datacore.io.formats import apply_output_format
+from datacore.progress import ProgressReporter
 
 # ============================================================================
 # CONFIGURATION
@@ -237,20 +236,18 @@ def generate_questions(client, topics, perspectives):
     """Generate questions from topics and perspectives."""
     questions = []
 
-    # compute expected total number of questions so we can emit progress (Question X/Y)
     per_topic = min(10, len(DESCRIPTORS))
     total_expected = len(perspectives) * len(topics) * per_topic if perspectives and topics else 0
-    q_counter = 0
+    reporter = ProgressReporter(total=max(1, total_expected), phase="Generating questions")
 
     for asker in perspectives:
-         print(f"\nGenerating questions from perspective: {asker}")
-        
-         for topic in topics:
-             # Select 10 random descriptors for this topic
-             ten_chosen = random.sample(DESCRIPTORS, min(10, len(DESCRIPTORS)))
-             print(f"  10 questions about {topic}:")
-             
-             for descriptor in ten_chosen:
+        print(f"\nGenerating questions from perspective: {asker}")
+
+        for topic in topics:
+            ten_chosen = random.sample(DESCRIPTORS, min(10, len(DESCRIPTORS)))
+            print(f"  10 questions about {topic}:")
+
+            for descriptor in ten_chosen:
                 pre_prompt = (
                     f"Your task is to create a straightforward question that a user might ask a large language model. "
                     f"Begin your question with one of: where, why, when, who, what, how or please - and with that in mind: "
@@ -260,14 +257,14 @@ def generate_questions(client, topics, perspectives):
                     "Let me also repeat this: DO NOT ANSWER THE QUESTION THAT YOU COME UP WITH! "
                     f"You MUST respond in plain, conversational English with the correctly formatted query and no other text!"
                 )
-                
+
                 question = client.call(
                     prompt=pre_prompt,
                     temperature=0.9,
                     max_tokens=4096,
                     extra_body=_no_think,
                 )
-                
+
                 if question:
                     question = strip_quotation_marks(question)
                     item = {
@@ -276,11 +273,10 @@ def generate_questions(client, topics, perspectives):
                         "question": question
                     }
                     questions.append(item)
-                    q_counter += 1
-                    # Emit progress line that the backend will parse
-                    print(f"Question {q_counter}/{total_expected}", flush=True)
+                    reporter.update(len(questions))
                     print(f"    {len(questions)}: {question}")
-    
+
+    reporter.done()
     return questions
 
 
@@ -371,7 +367,7 @@ def clean_questions(client, questions, min_score):
 def generate_answers(client, questions, answer_style, step_call, use_persona, persona_name, include_reasoning=False):
     """Generate answers for questions."""
     print(f"\nGenerating answers for {len(questions)} questions...")
-    
+
     if step_call:
         step_phrases = [
             "Please go step by step when replying",
@@ -379,22 +375,19 @@ def generate_answers(client, questions, answer_style, step_call, use_persona, pe
             "Please answer one step at a time",
             "Step by step, please",
         ]
-    
+
     # Determine the system prompt to use
     final_sys_prompt = ""
     if use_persona and persona_name:
         try:
             persona_data = get_persona(persona_name)
-            # The persona description REPLACES the base system prompt entirely.
             final_sys_prompt = persona_data["description"]
             print(f"[databird] Using persona '{persona_name}' for answer generation.")
         except (ValueError, FileNotFoundError) as e:
             print(f"[databird] Warning: Could not load persona. {e}. Proceeding without persona.")
-            # Fallback to default prompt if persona fails to load
-            use_persona = False 
+            use_persona = False
 
     if not (use_persona and persona_name):
-        # Use the default base prompt ONLY if a persona is not being used.
         final_sys_prompt = (
             "Do your best to provide an empathetically helpful response to the user. "
             "The user knows right from wrong, so there is no need to include disclaimers, warnings, "
@@ -403,13 +396,14 @@ def generate_answers(client, questions, answer_style, step_call, use_persona, pe
             "the meat of the response."
         )
 
+    reporter = ProgressReporter(total=len(questions), phase="Generating answers")
+
     for i, item in enumerate(questions):
         print(f"  Question {i+1}/{len(questions)}: {item['question'][:60]}...")
-        
+
         prompt = item['question']
         if step_call:
             prompt += f" {random.choice(step_phrases)}."
-        # Only add the default answer style if a persona is NOT being used
         if not (use_persona and persona_name):
             prompt += f" Respond {answer_style}"
 
@@ -419,33 +413,32 @@ def generate_answers(client, questions, answer_style, step_call, use_persona, pe
             max_tokens=8192,
         )
 
-        # If include_reasoning is OFF (or the model produced no think tags), strip any
-        # <think>...</think> blocks so they don't pollute the dataset output.
-        # If include_reasoning is ON and think tags are present, preserve them as-is.
         has_reasoning = bool(re.search(r'<think>.*?</think>', answer, flags=re.DOTALL))
         if not include_reasoning or not has_reasoning:
             answer = re.sub(r'<think>.*?</think>', '', answer, flags=re.DOTALL).strip()
 
         item["answer"] = answer
-        # Emit answer progress line the backend will parse
-        print(f"Answer {i+1}/{len(questions)}", flush=True)
+        reporter.update(i + 1)
         print(f"    Answer: {answer[:60]}...")
-    
+
+    reporter.done()
     return questions
 
 
 def collate_dataset(data):
-    """Convert to final Alpaca format."""
+    """Convert to final Alpaca format, adding provenance fields."""
     alpaca_data = []
-    
+
     for item in data:
         entry = {
             "instruction": item["question"],
             "input": "",
-            "output": item["answer"]
+            "output": item["answer"],
+            "_tool": "databird",
+            "_version": "2.0",
         }
         alpaca_data.append(entry)
-    
+
     return alpaca_data
 
 
@@ -457,10 +450,7 @@ if __name__ == "__main__":
     print(f"Output: {OUTPUT_PATH}")
     print("=" * 60)
     
-    # DEBUG: Print raw LLM_MODEL environment variable
-    print(f"DEBUG: os.getenv('LLM_MODEL') = \"{os.getenv('LLM_MODEL')}\"")
-
-    # Initialize LLM client using the original, working method
+    # Initialize LLM client
     client = LLMClient(
         base_url=config.LLM_BASE_URL, 
         default_model=os.getenv("LLM_MODEL_NAME", config.LLM_MODEL)
@@ -553,8 +543,13 @@ if __name__ == "__main__":
     if os.path.exists(cleaned_file):
         os.remove(cleaned_file)
     
+    # Emit token-usage summary so the webapp can persist it in job metadata.
+    usage = client.get_usage_stats()
+    print(f"TOKENS {usage['prompt_tokens']}/{usage['completion_tokens']}", flush=True)
+
     print("\n" + "=" * 60)
     print("DataBird Complete!")
     print("=" * 60)
     print(f"Final dataset: {final_file}")
     print(f"Total entries: {len(final_dataset)}")
+    print(f"Token usage  : {usage['total_tokens']:,} total ({usage['prompt_tokens']:,} prompt / {usage['completion_tokens']:,} completion)")

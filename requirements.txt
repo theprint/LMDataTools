@@ -2,10 +2,9 @@ fastapi
 uvicorn[standard]
 openai
 python-multipart
-aiofiles
-requests
 scikit-learn
 datasets
 numpy
 emoji
 bs4
+requests

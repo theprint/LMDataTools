@@ -26,6 +26,10 @@ def to_alpaca(data: List[Dict[str, Any]],
             "input": entry.get(input_key, "") if input_key else "",
             "output": entry.get(output_key, "")
         }
+        # Preserve provenance/metadata fields (underscore-prefixed)
+        for k, v in entry.items():
+            if k.startswith("_"):
+                alpaca_entry[k] = v
         alpaca_data.append(alpaca_entry)
     return alpaca_data
 
@@ -77,10 +81,11 @@ def to_sharegpt(data: List[Dict[str, Any]],
             "value": entry.get(output_key, "")
         })
         
-        # Preserve any metadata
-        if "response_model" in entry:
-            conversation["response_model"] = entry["response_model"]
-        
+        # Preserve provenance/metadata fields (underscore-prefixed)
+        for k, v in entry.items():
+            if k.startswith("_"):
+                conversation[k] = v
+
         sharegpt_data.append(conversation)
     
     return sharegpt_data
@@ -89,10 +94,13 @@ def to_sharegpt(data: List[Dict[str, Any]],
 def from_alpaca(data: List[Dict[str, str]]) -> List[Dict[str, str]]:
     """
     Convert from Alpaca format to standard Q&A format.
-    
+
+    Utility function used by tools that need to re-ingest Alpaca-formatted
+    data (e.g. datamix when mixing datasets of different formats).
+
     Args:
         data: Alpaca formatted data
-        
+
     Returns:
         Standard Q&A format
     """

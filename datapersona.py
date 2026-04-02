@@ -8,13 +8,12 @@ import glob
 import os
 import numpy as np
 from datacore.llm.client import LLMClient
-from datacore.config.settings import config, get_tool_output_path
+from datacore.config.settings import config
 from datacore.config.loader import load_tool_config
 from datacore.progress import ProgressReporter
 from datacore.io.json_ops import ResumableProcessor, save_json
 from datacore.personas.loader import get_persona
 from datacore.scoring import calculate_overall_score, flag_for_human_review
-from datacore.io.formats import to_alpaca
 
 # ============================================================================
 # CONFIGURATION
@@ -235,6 +234,10 @@ def main():
                         entry["reply_2_score"] = calculate_overall_score(client, org_reply, entry["reply_2"], ai_role)
                         scores_for_norm.append(entry["reply_2_score"])
 
+                # Provenance fields
+                entry["_tool"] = "datapersona"
+                entry["_version"] = "2.0"
+
                 # Auto-checkpoint
                 processor.checkpoint(i)
 
@@ -279,7 +282,10 @@ def main():
         if EXPORT_ALPACA:
             all_data_for_export.extend(processor.data)
 
+    usage = client.get_usage_stats()
+    print(f"TOKENS {usage['prompt_tokens']}/{usage['completion_tokens']}", flush=True)
     print(f"Data processing complete. Full output saved to: {OUTPUT_PATH}")
+    print(f"Token usage: {usage['total_tokens']:,} total ({usage['prompt_tokens']:,} prompt / {usage['completion_tokens']:,} completion)")
     # Optional Alpaca Export
     if EXPORT_ALPACA and all_data_for_export:
         print("\nExporting to Alpaca format...")

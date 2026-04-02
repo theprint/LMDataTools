@@ -540,6 +540,22 @@
             align-items: center;
             margin-bottom: 8px;
         }
+
+        .job-header-right {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .token-badge {
+            font-size: 11px;
+            padding: 3px 7px;
+            border-radius: 4px;
+            background: rgba(79, 172, 254, 0.15);
+            color: #4facfe;
+            border: 1px solid rgba(79, 172, 254, 0.25);
+            white-space: nowrap;
+        }
         
         .job-title {
             font-weight: 600;
@@ -660,10 +676,20 @@
             background: #ff4757;
             color: white;
         }
-        
+
         .btn-delete:hover {
             background: #ee2e3f;
             box-shadow: 0 4px 12px rgba(255, 71, 87, 0.3);
+        }
+
+        .btn-cancel {
+            background: #ff6b35;
+            color: white;
+        }
+
+        .btn-cancel:hover {
+            background: #e85a24;
+            box-shadow: 0 4px 12px rgba(255, 107, 53, 0.4);
         }
         
         /* Error Message */
