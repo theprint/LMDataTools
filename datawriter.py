@@ -7,7 +7,7 @@ import os
 import json
 from datetime import datetime
 from datacore.llm.client import LLMClient
-from datacore.config.settings import config, get_tool_output_path
+from datacore.config.settings import config
 from datacore.config.loader import load_tool_config
 from datacore.progress import ProgressReporter
 from datacore.io.json_ops import save_json
@@ -94,7 +94,7 @@ if __name__ == "__main__":
         topic_string, tier = get_random_topic(tier_weights=TIER_WEIGHTS)
         
         # Build system prompt with style
-        full_system_prompt = f"{system_prompt} Always respond as that persona, in a {style} style. Incorprate these contextual elements in a natural way, without forced mentions."
+        full_system_prompt = f"{system_prompt} Always respond as that persona, in a {style} style. Incorporate these contextual elements in a natural way, without forced mentions."
         
         # Build user prompt with token length guidance
         token_range_guidance = f"Your response should be between {MIN_TOKENS} and {MAX_TOKENS} tokens in length. "

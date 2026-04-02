@@ -39,22 +39,12 @@ def read_file_content(file_path: str) -> str:
     file_path = file_path.strip().strip('"').strip("'")
     
     print(f"  Reading file: {file_path}")
-    print(f"  Debug - Received path: '{file_path}'")
-    print(f"  Debug - Path length: {len(file_path)}")
-    
+
     try:
         path = Path(file_path)
-        print(f"  Debug - Resolved path: '{path}'")
-        print(f"  Debug - Path exists: {path.exists()}")
-        print(f"  Debug - Is absolute: {path.is_absolute()}")
-        
+
         if not path.exists():
             print(f"  Error: File not found: {file_path}")
-            # Try to show what files ARE in the parent directory
-            parent = path.parent
-            if parent.exists():
-                print(f"  Debug - Parent directory exists: {parent}")
-                print(f"  Debug - Files in parent: {list(parent.iterdir())[:5]}")
             return None
         
         # Read file based on extension

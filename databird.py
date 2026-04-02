@@ -11,9 +11,7 @@ Pipeline:
 
 import os
 import re
-import math
 import sys
-import time
 import random
 import json
 import ast
@@ -452,10 +450,7 @@ if __name__ == "__main__":
     print(f"Output: {OUTPUT_PATH}")
     print("=" * 60)
     
-    # DEBUG: Print raw LLM_MODEL environment variable
-    print(f"DEBUG: os.getenv('LLM_MODEL') = \"{os.getenv('LLM_MODEL')}\"")
-
-    # Initialize LLM client using the original, working method
+    # Initialize LLM client
     client = LLMClient(
         base_url=config.LLM_BASE_URL, 
         default_model=os.getenv("LLM_MODEL_NAME", config.LLM_MODEL)

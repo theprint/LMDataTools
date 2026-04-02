@@ -970,11 +970,6 @@ async def run_databird(config: DataBirdConfig, background_tasks: BackgroundTasks
     config_dict["output_path"] = output_path
     config_dict["output_format"] = get_global_pref("preferred_output_format", "alpaca")
 
-    # Diagnostic: confirm what Pydantic received for llm_settings
-    _ls = config.llm_settings
-    _ak = (_ls.api_key or '') if _ls else ''
-    print(f"[DEBUG run_databird] llm_settings present={_ls is not None}  api_key_len={len(_ak)}  api_key={'None' if _ls is None else ((_ak[:4]+'...'+_ak[-8:]) if len(_ak)>=12 else repr(_ak))}")
-
     job_dir = create_job_workspace(job_id, "databird", config.dataset_name, config_dict)
 
     # Save user settings for next time

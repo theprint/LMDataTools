@@ -84,7 +84,7 @@ class LLMClient:
             key_display = f"({len(self.api_key)} chars)"
         else:
             key_display = repr(self.api_key)
-        print(f"DEBUG: LLMClient base_url={self.client.base_url} api_key={key_display} model={self.default_model}")
+        print(f"[LLM] init base_url={self.client.base_url} key={key_display} model={self.default_model}")
 
     # ------------------------------------------------------------------
     # Public API
