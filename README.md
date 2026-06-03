@@ -11,6 +11,8 @@ This is a collection of data synthesis tools for generating training data for fi
 *   **Token Usage Tracking**: Completed jobs display total prompt and completion token counts in the UI and persist them in `metadata.json`.
 *   **Schema Provenance**: Every output entry includes `_tool` and `_version` fields for traceability when mixing datasets.
 *   **Automatic Retry**: Transient LLM errors (rate limits, timeouts, 5xx) are retried up to 3 times with jittered exponential backoff.
+*   **Checkpoint Resume**: Long-running jobs save intermediate checkpoints. If interrupted, they resume from where they left off instead of starting over.
+*   **Hugging Face Dataset Cards**: Each completed job generates a `README.md` with YAML front-matter, field descriptions, and an LLM-written summary — ready to upload alongside the dataset on Hugging Face.
 *   **Modular Toolset**: A suite of distinct tools for different synthetic data needs.
 *   **Flexible LLM Configuration**: Supports various LLM providers, including OpenAI, Gemini, OpenRouter, and local models (e.g., via LM Studio, Ollama).
 *   **Secure Credential Management**: API keys and other sensitive information are handled securely and not exposed in configuration files.
@@ -19,15 +21,17 @@ This is a collection of data synthesis tools for generating training data for fi
 
 The suite includes the following tools, each tailored for a specific data generation task:
 
-*   **DataBird**: Procedurally generates question-and-answer datasets based on a list of topics.
-*   **DataQA**: Scrapes content from a list of source URLs and generates question-and-answer pairs based on the scraped information.
-*   **DataConvo**: Generates multi-round conversations from a starting dataset, useful for training on longer context.
+*   **DataBird**: Procedurally generates question-and-answer datasets based on a list of topics. Supports configurable dataset sizes, persona-styled answers, and checkpoint resume.
+*   **DataQA**: Scrapes content from a list of source URLs (or uploaded files) and generates question-and-answer pairs based on the scraped information. Supports checkpoint resume across sources and chunks.
+*   **DataConvo**: Generates multi-round conversations from a starting dataset, useful for training on longer context. Supports checkpoint resume.
 *   **DataThink**: Adds `<think>...</think>` reasoning blocks to existing datasets. Supports three modes: `insert_reasoning` (adds reasoning to existing answers), `regenerate` (reasons through and rewrites the answer), and `generate_new` (generates both reasoning and answer from questions only).
 *   **DataPersona**: Rewrites an existing dataset from the perspective of a defined "persona." Generates two candidate responses and selects the best one.
-*   **DataWriter**: Generates a specified number of long-form documents on various subjects, useful for creating pre-training or document-based datasets.
-*   **DataMix**: Combines multiple datasets from Hugging Face into a new dataset, allowing you to specify weights and subsets for each source.
+*   **DataWriter**: Generates a specified number of long-form documents on various subjects, useful for creating pre-training or document-based datasets. Supports checkpoint resume.
+*   **DataMix**: Combines multiple datasets — from Hugging Face or local files — into a new dataset, allowing you to specify weights, subsets, and formats for each source.
+*   **DataDoubler**: Expands a Q&A dataset by generating rephrased question variants with fresh answers. Each run doubles the working set (up to 16× original size). Supports persona-styled answers and checkpoint resume.
+*   **Reformat**: Converts a dataset between Alpaca, ShareGPT, and Q&A formats.
 
-Note: personas can be incorporated into the responses of DataBird, DataQA, and DataConvo.
+Note: personas can be incorporated into the responses of DataBird, DataQA, DataConvo, and DataDoubler.
 
 ## Getting Started
 
@@ -84,16 +88,20 @@ Follow these steps to get the DataSynthesis Suite up and running on your local m
 
 ```
 LMDataTools/
-├── datacore/             # Shared utilities (LLM client, config, personas)
+├── datacore/             # Shared utilities (LLM client, config, personas, I/O)
+│   ├── io/               # Dataset I/O: format converters, loaders, README cards
+│   └── llm/              # Unified LLM client with retry and token tracking
 ├── webapp/               # Frontend static files (HTML, CSS, JS)
 ├── jobs/                 # Workspace for all jobs, logs, and outputs (gitignored)
 ├── databird.py           # Script for the DataBird tool
 ├── dataconvo.py          # Script for the DataConvo tool
+├── datadoubler.py        # Script for the DataDoubler tool
 ├── datamix.py            # Script for the DataMix tool
 ├── datapersona.py        # Script for the DataPersona tool
 ├── dataqa.py             # Script for the DataQA tool
 ├── datathink.py          # Script for the DataThink tool
 ├── datawriter.py         # Script for the DataWriter tool
+├── reformat.py           # Script for the Reformat tool
 ├── webapp.py             # Main FastAPI application and backend logic
 ├── personas.json         # Pre-defined personas for the DataPersona tool
 ├── topics.json           # Tiered list of topics for the DataBird/DataWriter tools
