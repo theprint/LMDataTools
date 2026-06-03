@@ -13,6 +13,7 @@ from datetime import datetime
 from datasets import load_dataset
 from datacore.io.json_ops import save_json
 from datacore.io.formats import apply_output_format
+from datacore.io.loaders import load_local_dataset
 from datacore.progress import ProgressReporter
 
 # ============================================================================
@@ -112,6 +113,53 @@ PROCESSORS = {
     "extract_post_info":    extract_post_info,
 }
 
+
+def _normalize_conversations(convs):
+    """
+    Normalize a conversations/messages list to ShareGPT from/value format.
+    Handles both ShareGPT (from/value) and OpenAI-messages (role/content).
+    """
+    _role_map = {"user": "human", "assistant": "gpt", "system": "system"}
+    normalized = []
+    for msg in convs:
+        if "from" in msg and "value" in msg:
+            normalized.append({"from": msg["from"], "value": msg["value"]})
+        elif "role" in msg and "content" in msg:
+            normalized.append({
+                "from":  _role_map.get(msg["role"], msg["role"]),
+                "value": msg["content"],
+            })
+    return normalized
+
+
+def extract_conversations_from_entry(entry, dataset_name):
+    """
+    For conversation-type entries return the full normalized conversations list
+    (system turn + all human/assistant turns).  Returns None for flat entries.
+    """
+    override = DATASET_FORMATS.get(dataset_name)
+
+    # ShareGPT — conversations key with from/value dicts
+    if "conversations" in entry or override == "sharegpt":
+        return _normalize_conversations(entry.get("conversations", []))
+
+    # OpenAI/ChatML — messages key with role/content dicts
+    if "messages" in entry or override == "messages":
+        return _normalize_conversations(entry.get("messages", []))
+
+    # ChatML list stored in the "input" field, final response in "output"
+    input_val = entry.get("input")
+    if _is_chatml_list(input_val) or override == "chatml_input":
+        msgs = input_val if isinstance(input_val, list) else []
+        normalized = _normalize_conversations(msgs)
+        output = entry.get("output", "")
+        # Append the output as the final assistant turn if it isn't already there
+        if output and not any(m["from"] in ("gpt", "assistant") for m in normalized):
+            normalized.append({"from": "gpt", "value": output})
+        return normalized
+
+    return None
+
 # ============================================================================
 # LOAD CONFIGURATION
 # ============================================================================
@@ -130,7 +178,7 @@ if os.path.exists("config.json"):
     OUTPUT_FORMAT         = job_config.get("output_format", "alpaca")
 
     DATASET_SOURCES = [
-        (ds["name"], ds["weight"], ds.get("subset"))
+        (ds["name"], ds["weight"], ds.get("subset"), ds.get("type", "huggingface"))
         for ds in job_config.get("dataset_sources", [])
     ]
 
@@ -152,9 +200,9 @@ else:
     OUTPUT_FORMAT          = "alpaca"
 
     DATASET_SOURCES = [
-        ("theprint/databird-sensible",    0.09, None),
-        ("theprint/databird-negotiation", 0.10, None),
-        ("theprint/databird-power",       0.09, None),
+        ("theprint/databird-sensible",    0.09, None, "huggingface"),
+        ("theprint/databird-negotiation", 0.10, None, "huggingface"),
+        ("theprint/databird-power",       0.09, None, "huggingface"),
     ]
 
     DATASET_FORMATS = {}
@@ -272,9 +320,48 @@ def validate_entry(instruction, output):
     return True
 
 
-def process_dataset(dataset_name, weight, subset, hf_token, seed, total_samples):
-    """Load, shuffle, sample, and normalise a HuggingFace dataset."""
-    print(f"\nProcessing: {dataset_name}")
+def process_dataset(dataset_name, weight, subset, hf_token, seed, total_samples, source_type="huggingface"):
+    """Load, shuffle, sample, and normalise a dataset (HuggingFace or local file)."""
+    print(f"\nProcessing: {dataset_name} ({source_type})")
+
+    if source_type == "local":
+        try:
+            local_path = os.path.join("import", dataset_name) if not os.path.isabs(dataset_name) else dataset_name
+            entries = load_local_dataset(local_path)
+        except Exception as e:
+            print(f"  Error loading local dataset: {e}")
+            return []
+
+        rng = random.Random(seed)
+        rng.shuffle(entries)
+        samples_count = min(round(total_samples * weight), len(entries))
+        print(f"  Taking {samples_count} of {len(entries)} entries ({weight * 100:.1f}%)")
+
+        if entries:
+            detected = detect_format(entries[0])
+            override = DATASET_FORMATS.get(dataset_name, "auto")
+            fmt_label = override if override != "auto" else f"{detected} (auto)"
+            print(f"  Format: {fmt_label}")
+
+        processed = []
+        for entry in entries[:samples_count]:
+            instruction, input_text, output = extract_qa_from_entry(entry, dataset_name)
+            if not validate_entry(instruction, output):
+                continue
+            row = {
+                "source":      f"local:{dataset_name}",
+                "instruction": instruction,
+                "input":       input_text,
+                "output":      output,
+                "_tool":       "datamix",
+                "_version":    "2.0",
+            }
+            convs = extract_conversations_from_entry(entry, dataset_name)
+            if convs is not None:
+                row["_conversations"] = convs
+            processed.append(row)
+        print(f"  Kept {len(processed)} valid entries")
+        return processed
 
     try:
         if subset:
@@ -304,14 +391,18 @@ def process_dataset(dataset_name, weight, subset, hf_token, seed, total_samples)
         if not validate_entry(instruction, output):
             continue
 
-        processed.append({
+        row = {
             "source":      dataset_name,
             "instruction": instruction,
             "input":       input_text,
             "output":      output,
             "_tool":       "datamix",
             "_version":    "2.0",
-        })
+        }
+        convs = extract_conversations_from_entry(entry, dataset_name)
+        if convs is not None:
+            row["_conversations"] = convs
+        processed.append(row)
 
     print(f"  Kept {len(processed)} valid entries")
     return processed
@@ -323,15 +414,16 @@ if __name__ == "__main__":
     print(f"Target samples: {TOTAL_SAMPLES:,}")
     print(f"Datasets to mix: {len(DATASET_SOURCES)}")
     print(f"Output: {OUTPUT_PATH}")
+    print(f"Output format: {OUTPUT_FORMAT}")
     print("=" * 60)
 
-    total_weight = sum(w for _, w, _ in DATASET_SOURCES)
+    total_weight = sum(w for _, w, _, _ in DATASET_SOURCES)
     if abs(total_weight - 1.0) > 0.01:
         print(f"\nWarning: Weights sum to {total_weight:.3f}, not 1.0 — sample counts may vary.\n")
 
     all_data = []
     mix_reporter = ProgressReporter(total=len(DATASET_SOURCES), phase="Loading datasets")
-    for i, (dataset_name, weight, subset) in enumerate(DATASET_SOURCES):
+    for i, (dataset_name, weight, subset, source_type) in enumerate(DATASET_SOURCES):
         entries = process_dataset(
             dataset_name=dataset_name,
             weight=weight,
@@ -339,6 +431,7 @@ if __name__ == "__main__":
             hf_token=HF_TOKEN,
             seed=SEED,
             total_samples=TOTAL_SAMPLES,
+            source_type=source_type,
         )
         all_data.extend(entries)
         mix_reporter.update(i + 1)

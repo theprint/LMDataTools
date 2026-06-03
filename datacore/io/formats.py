@@ -59,6 +59,17 @@ def to_sharegpt(data: List[Dict[str, Any]],
     """
     sharegpt_data = []
     for entry in data:
+        # Fast path: full multi-turn conversation preserved from a conversation-type source.
+        # Use it directly so system prompts and all turns are retained as-is.
+        if "_conversations" in entry:
+            conversation = {"conversations": list(entry["_conversations"])}
+            for k, v in entry.items():
+                if k.startswith("_") and k != "_conversations":
+                    conversation[k] = v
+            sharegpt_data.append(conversation)
+            continue
+
+        # Slow path: build a single-turn conversation from flat instruction/output fields.
         conversation = {"conversations": []}
 
         if system_prompt:
@@ -72,22 +83,22 @@ def to_sharegpt(data: List[Dict[str, Any]],
         user_value  = f"{instruction}\n\n{context}" if context else instruction
 
         conversation["conversations"].append({
-            "from": "user",
+            "from": "human",
             "value": user_value
         })
-        
+
         conversation["conversations"].append({
-            "from": "assistant",
+            "from": "gpt",
             "value": entry.get(output_key, "")
         })
-        
+
         # Preserve provenance/metadata fields (underscore-prefixed)
         for k, v in entry.items():
             if k.startswith("_"):
                 conversation[k] = v
 
         sharegpt_data.append(conversation)
-    
+
     return sharegpt_data
 
 
@@ -135,6 +146,24 @@ def apply_output_format(
             to_sharegpt(data, instruction_key=instruction_key, output_key=output_key, input_key=input_key),
             "sharegpt",
         )
+    if output_format == "qa":
+        # Pass-through when source already uses question/answer keys; otherwise
+        # remap from instruction/output to question/answer while preserving
+        # underscore-prefixed metadata.
+        qa_data = []
+        for entry in data:
+            qa_entry = {
+                "question": entry.get(instruction_key, entry.get("question", "")),
+                "answer": entry.get(output_key, entry.get("answer", "")),
+            }
+            ctx = entry.get(input_key, "") if input_key else ""
+            if ctx:
+                qa_entry["input"] = ctx
+            for k, v in entry.items():
+                if k.startswith("_"):
+                    qa_entry[k] = v
+            qa_data.append(qa_entry)
+        return (qa_data, "qa")
     return (
         to_alpaca(data, instruction_key=instruction_key, output_key=output_key, input_key=input_key),
         "alpaca",

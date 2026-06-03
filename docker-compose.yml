@@ -8,6 +8,10 @@ services:
       - "8910:8910"
     volumes:
       - ./jobs:/app/jobs
-    # You can pass environment variables for API keys here
+      - ./personas.json:/app/personas.json:ro
+      - ./topics.json:/app/topics.json:ro
     env_file:
       - .env
+    environment:
+      - TZ=America/Los_Angeles
+

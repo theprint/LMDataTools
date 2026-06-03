@@ -67,6 +67,24 @@ def main():
         source_data = [json.loads(line) for line in f] if source_file_path.endswith('.jsonl') else json.load(f)
 
     print(f"[dataconvo] Found {len(source_data)} conversations to expand.")
+
+    # ── Resume from checkpoint ────────────────────────────────────────────────
+    checkpoint_path = os.path.join(os.getcwd(), f"{cfg['DATASET_NAME']}-checkpoint.json")
+    expanded_conversations = []
+    resume_from = 0
+    if os.path.exists(checkpoint_path):
+        try:
+            with open(checkpoint_path, 'r', encoding='utf-8') as f:
+                ckpt = json.load(f)
+            expanded_conversations = ckpt.get("conversations", [])
+            resume_from = ckpt.get("last_source_index", -1) + 1
+            print(f"[dataconvo] Resuming from source item {resume_from + 1}, "
+                  f"{len(expanded_conversations)} conversations already expanded.")
+        except Exception as e:
+            print(f"[dataconvo] Warning: could not read checkpoint ({e}), starting from scratch.")
+            expanded_conversations = []
+            resume_from = 0
+
     reporter = ProgressReporter(total=len(source_data), phase="Expanding conversations")
 
     # Prepare the assistant's system prompt (with optional persona)
@@ -87,9 +105,10 @@ def main():
     round_weights = cfg.get("ROUND_WEIGHTS", {"rounds_1": 25, "rounds_2": 50, "rounds_3": 25})
     num_rounds_choices = [1] * round_weights["rounds_1"] + [2] * round_weights["rounds_2"] + [3] * round_weights["rounds_3"]
 
-    expanded_conversations = []
     for i, entry in enumerate(source_data):
         reporter.update(i + 1)
+        if i < resume_from:
+            continue
         print(f"  Processing entry {i + 1} of {len(source_data)}...")
         
         # Accept ShareGPT (conversations), Alpaca (instruction/output), or Q&A (question/answer) format
@@ -144,9 +163,8 @@ def main():
 
         # Save checkpoint
         if (i + 1) % cfg.get("SAVE_INTERVAL", 100) == 0:
-            output_path = os.path.join(os.getcwd(), f"{cfg['DATASET_NAME']}-checkpoint.json")
-            save_json(expanded_conversations, output_path)
-            print(f"    - Checkpoint saved with {len(expanded_conversations)} conversations.")
+            save_json({"last_source_index": i, "conversations": expanded_conversations}, checkpoint_path)
+            print(f"    - Checkpoint saved: {len(expanded_conversations)} conversations, up to source item {i + 1}.")
 
     # Save the final dataset
     output_path = os.path.join(os.getcwd(), f"{cfg['DATASET_NAME']}.json")

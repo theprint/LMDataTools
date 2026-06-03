@@ -140,6 +140,31 @@ def save_checkpoint(data, dataset_file):
     print(f"  Checkpoint saved: {len(data)} total Q&A pairs")
 
 
+def progress_path():
+    return os.path.join(OUTPUT_PATH, f"{DEFAULT_CONFIG['DATASET_NAME']}-progress.json")
+
+
+def load_progress():
+    """Load resume progress (completed sources + in-progress source state)."""
+    path = progress_path()
+    if os.path.exists(path):
+        try:
+            return load_json(path)
+        except Exception as e:
+            print(f"  Warning: progress file unreadable ({e}); starting fresh.")
+    return {"completed_sources": [], "current": None}
+
+
+def save_progress(progress):
+    save_json(progress, progress_path())
+
+
+def clear_progress():
+    path = progress_path()
+    if os.path.exists(path):
+        os.remove(path)
+
+
 def scrape_url(url):
     """Scrape and clean content from a URL."""
     print(f"  Scraping: {url}")
@@ -412,32 +437,6 @@ def extract_keywords(text, top_n=5):
     return [word for word, _ in sorted_words[:top_n]]
 
 
-def generate_readme(dataset_name, total_entries, all_keywords):
-    """Generate a simple README for the dataset."""
-    
-    keyword_freq = {}
-    for keywords in all_keywords:
-        for kw in keywords:
-            keyword_freq[kw] = keyword_freq.get(kw, 0) + 1
-    
-    top_keywords = sorted(keyword_freq.items(), key=lambda x: x[1], reverse=True)[:10]
-    
-    readme = f"""# {dataset_name}
-
-A Q&A dataset generated from web content with {total_entries:,} question-answer pairs.
-
-## Top Keywords
-
-"""
-    
-    for kw, count in top_keywords:
-        readme += f"- {kw} ({count} occurrences)\n"
-    
-    readme += f"\n## Format\n\nEach entry contains:\n- `question`: The question asked\n- `answer`: The detailed answer\n- `source`: Source URL\n- `confidence`: Quality confidence score (0.0-1.0)\n- `keywords`: Relevant keywords extracted from the Q&A\n"
-    
-    return readme
-
-
 if __name__ == "__main__":
     print("DataQA - Web Content to Q&A Dataset")
     print("=" * 60)
@@ -462,6 +461,7 @@ if __name__ == "__main__":
 
     print(f"Dataset: {DEFAULT_CONFIG['DATASET_NAME']}")
     print(f"Output: {OUTPUT_PATH}")
+    print(f"Output format: {DEFAULT_CONFIG.get('OUTPUT_FORMAT', 'alpaca')}")
     print("=" * 60)
 
     print(f"\nFound {len(sources)} total URLs to process.\n")
@@ -476,141 +476,197 @@ if __name__ == "__main__":
     total_pairs_validated = 0
     total_pairs_added = 0
     
+    # Load resume state (completed sources + any in-progress source)
+    progress = load_progress()
+    completed_sources = list(progress.get("completed_sources", []))
+    in_progress = progress.get("current")
+    if completed_sources or in_progress:
+        print(f"\n[RESUME] {len(completed_sources)} source(s) already complete"
+              + (f"; resuming in-progress source: {in_progress.get('source')}" if in_progress else ""))
+
     try:
-        for source_idx, source in enumerate(sources):  
+        for source_idx, source in enumerate(sources):
             print(f"\n{'='*60}")
-            print(f"Processing: {source}")  
+            print(f"Processing: {source}")
             print('='*60)
-            
-            # Get content (handles both URLs and files)
-            content = get_content(source)
-            if not content:
-                print("  Skipping due to error")
+
+            if source in completed_sources:
+                print("  [SKIP] Already completed in a previous run.")
+                source_reporter.update(source_idx + 1)
                 continue
-            
-            # Chunk content
-            chunks = chunk_text(content, chunk_size=DEFAULT_CONFIG.get("CHUNK_SIZE", 1024))
-            print(f"  Split into {len(chunks)} chunks")
-            
-            # Get perspectives
-            if DEFAULT_CONFIG.get("AUTO_PERSPECTIVES", True):
-                # Extract topic from source (URL or file path)
-                topic = None
-                
-                if is_url(source):
-                    # Extract topic from URL
-                    from urllib.parse import urlparse
-                    parsed = urlparse(source)
-                    
-                    # Try path segments first (excluding empty strings)
-                    path_parts = [p for p in parsed.path.split('/') if p]
-                    
-                    if path_parts:
-                        # Use last meaningful path segment
-                        topic = path_parts[-1]
-                        # Remove common file extensions
-                        topic = re.sub(r'\.(html?|php|asp|jsp|txt|md)$', '', topic, flags=re.IGNORECASE)
+
+            # Restore state if this source matches the in-progress checkpoint
+            resumed_state = in_progress if in_progress and in_progress.get("source") == source else None
+            in_progress = None  # only one in-progress source can match; consume it
+
+            if resumed_state:
+                chunks = resumed_state.get("chunks", [])
+                perspectives = resumed_state.get("perspectives", [])
+                all_pairs_for_source = [tuple(p) for p in resumed_state.get("pending_pairs", [])]
+                completed_chunk_count = resumed_state.get("completed_chunk_count", 0)
+                validation_index = resumed_state.get("validation_index", 0)
+                print(f"  [RESUME] {completed_chunk_count}/{len(chunks)} chunks done, "
+                      f"{validation_index}/{len(all_pairs_for_source)} pairs validated, "
+                      f"{len(perspectives)} perspectives cached")
+            else:
+                # Get content (handles both URLs and files)
+                content = get_content(source)
+                if not content:
+                    print("  Skipping due to error")
+                    continue
+
+                # Chunk content
+                chunks = chunk_text(content, chunk_size=DEFAULT_CONFIG.get("CHUNK_SIZE", 1024))
+                print(f"  Split into {len(chunks)} chunks")
+
+                # Get perspectives
+                if DEFAULT_CONFIG.get("AUTO_PERSPECTIVES", True):
+                    # Extract topic from source (URL or file path)
+                    topic = None
+
+                    if is_url(source):
+                        # Extract topic from URL
+                        from urllib.parse import urlparse
+                        parsed = urlparse(source)
+
+                        # Try path segments first (excluding empty strings)
+                        path_parts = [p for p in parsed.path.split('/') if p]
+
+                        if path_parts:
+                            # Use last meaningful path segment
+                            topic = path_parts[-1]
+                            # Remove common file extensions
+                            topic = re.sub(r'\.(html?|php|asp|jsp|txt|md)$', '', topic, flags=re.IGNORECASE)
+                            # Convert dashes/underscores to spaces
+                            topic = topic.replace('-', ' ').replace('_', ' ')
+                        else:
+                            # Fallback to domain name if path is empty
+                            topic = parsed.netloc.replace('www.', '')
+                    else:
+                        # Extract topic from file path
+                        from pathlib import Path
+                        path = Path(source)
+                        # Use filename without extension
+                        topic = path.stem
                         # Convert dashes/underscores to spaces
                         topic = topic.replace('-', ' ').replace('_', ' ')
-                    else:
-                        # Fallback to domain name if path is empty
-                        topic = parsed.netloc.replace('www.', '')
+
+                    # Final cleanup
+                    topic = topic.strip() if topic else None
+
+                    if not topic:
+                        print(f"  Warning: Could not extract topic from source, using generic 'the content'")
+                        topic = "the content"
+
+                    print(f"  Generating perspectives for: {topic}")
+                    perspectives = generate_auto_perspectives(client, topic, DEFAULT_CONFIG.get("AUTO_PERSPECTIVE_COUNT", 5))
                 else:
-                    # Extract topic from file path
-                    from pathlib import Path
-                    path = Path(source)
-                    # Use filename without extension
-                    topic = path.stem
-                    # Convert dashes/underscores to spaces
-                    topic = topic.replace('-', ' ').replace('_', ' ')
-                
-                # Final cleanup
-                topic = topic.strip() if topic else None
-                
-                if not topic:
-                    print(f"  Warning: Could not extract topic from source, using generic 'the content'")
-                    topic = "the content"
-                
-                print(f"  Generating perspectives for: {topic}")
-                perspectives = generate_auto_perspectives(client, topic, DEFAULT_CONFIG.get("AUTO_PERSPECTIVE_COUNT", 5))
-            else:
-                perspectives = DEFAULT_CONFIG.get("MANUAL_PERSPECTIVES", [])
-            
-            print(f"  Using {len(perspectives)} perspectives")
-            
-            # Accumulate Q&A pairs for all chunks of a single source
-            all_pairs_for_source = []
+                    perspectives = DEFAULT_CONFIG.get("MANUAL_PERSPECTIVES", [])
+
+                print(f"  Using {len(perspectives)} perspectives")
+
+                all_pairs_for_source = []
+                completed_chunk_count = 0
+                validation_index = 0
+
             pairs_count_before_source = len(all_qa_data)
 
-            # Generate Q&A for each chunk
-            for chunk_idx, chunk in enumerate(chunks):
+            def _snapshot_current(stage_chunk_count, stage_validation_index):
+                progress["current"] = {
+                    "source": source,
+                    "chunks": chunks,
+                    "perspectives": perspectives,
+                    "pending_pairs": [list(p) for p in all_pairs_for_source],
+                    "completed_chunk_count": stage_chunk_count,
+                    "validation_index": stage_validation_index,
+                }
+                save_progress(progress)
+
+            # Persist state on entry so a crash before chunk 0 still has the cached perspectives
+            _snapshot_current(completed_chunk_count, validation_index)
+
+            # Generate Q&A for each chunk (resumable from completed_chunk_count)
+            for chunk_idx in range(completed_chunk_count, len(chunks)):
+                chunk = chunks[chunk_idx]
                 # Calculate progress for webapp monitoring
                 progress_for_this_chunk = ((chunk_idx + 1) / len(chunks)) * (1 / total_sources) * 100
                 progress_from_previous_sources = (source_idx / total_sources) * 100
                 total_progress = round(progress_from_previous_sources + progress_for_this_chunk)
-                
+
                 print(f"    Processing chunk {chunk_idx + 1}/{len(chunks)}... Progress: {total_progress}/100", flush=True)
-                
+
                 qa_pairs = generate_qa_for_chunk(client, chunk, perspectives)
                 print(f"      → Generated {len(qa_pairs)} pairs from this chunk")
-                
+
                 all_pairs_for_source.extend(qa_pairs)
                 total_chunks_processed += 1
                 total_pairs_generated += len(qa_pairs)
-                
+
                 print(f"      → Accumulated total for source: {len(all_pairs_for_source)} pairs from {chunk_idx + 1} chunks")
-            # Validate and score all pairs for the URL
-            print(f"\n  Validating {len(all_pairs_for_source)} pairs from {len(chunks)} chunks for {source}...")
-            
-            for question, answer in all_pairs_for_source:
+                _snapshot_current(chunk_idx + 1, validation_index)
+
+            # Validate and score all pairs for the URL (resumable from validation_index)
+            print(f"\n  Validating {len(all_pairs_for_source)} pairs from {len(chunks)} chunks for {source}"
+                  + (f" (resuming at index {validation_index})" if validation_index > 0 else "")
+                  + "...")
+
+            i = validation_index
+            while i < len(all_pairs_for_source):
+                question, answer = all_pairs_for_source[i]
+                i += 1
                 total_pairs_validated += 1
-                
+
                 is_valid, reason = validate_qa_pair(question, answer)
-                
+
                 if not is_valid:
                     print(f"    Rejected: {reason}")
-                    continue
-                
-                # Calculate confidence
-                confidence = calculate_confidence(client, question, answer)
-                
-                if confidence < DEFAULT_CONFIG.get("CONFIDENCE_THRESHOLD", 0.68):
-                    print(f"    Rejected: low confidence ({confidence})")
-                    continue
-                
-                # Extract keywords
-                combined_text = f"{question} {answer}"
-                keywords = extract_keywords(combined_text)
-                
-                # Create entry
-                entry = {
-                    "question": question,
-                    "answer": answer,
-                    "source": source,
-                    "confidence": confidence,
-                    "keywords": keywords,
-                    "_tool": "dataqa",
-                    "_version": "2.0",
-                }
-                
-                all_qa_data.append(entry)
-                all_keywords.append(keywords)
-                qa_count_since_save += 1
-                total_pairs_added += 1
-                print(f"    [ADDED] (confidence: {confidence})")
-                
-                # Checkpoint if needed
+                else:
+                    # Calculate confidence
+                    confidence = calculate_confidence(client, question, answer)
+
+                    if confidence < DEFAULT_CONFIG.get("CONFIDENCE_THRESHOLD", 0.68):
+                        print(f"    Rejected: low confidence ({confidence})")
+                    else:
+                        # Extract keywords
+                        combined_text = f"{question} {answer}"
+                        keywords = extract_keywords(combined_text)
+
+                        # Create entry
+                        entry = {
+                            "question": question,
+                            "answer": answer,
+                            "source": source,
+                            "confidence": confidence,
+                            "keywords": keywords,
+                            "_tool": "dataqa",
+                            "_version": "2.0",
+                        }
+
+                        all_qa_data.append(entry)
+                        all_keywords.append(keywords)
+                        qa_count_since_save += 1
+                        total_pairs_added += 1
+                        print(f"    [ADDED] (confidence: {confidence})")
+
+                # Checkpoint if needed (saves dataset + advances validation_index)
                 if DEFAULT_CONFIG.get("SAVE_INTERVAL", 10) > 0 and qa_count_since_save >= DEFAULT_CONFIG.get("SAVE_INTERVAL", 10):
                     save_checkpoint(all_qa_data, dataset_file)
                     qa_count_since_save = 0
-            
+                    _snapshot_current(len(chunks), i)
+
+            validation_index = i
+
             pairs_added_for_source = len(all_qa_data) - pairs_count_before_source
             source_reporter.update(source_idx + 1)
             print(f"\n  [SOURCE COMPLETE] Added {pairs_added_for_source} pairs from {source} ({source_idx + 1}/{total_sources})")
 
-            # Save after each URL
+            # Save after each URL and mark source completed in progress file
             save_checkpoint(all_qa_data, dataset_file)
             qa_count_since_save = 0
+            completed_sources.append(source)
+            progress["completed_sources"] = completed_sources
+            progress["current"] = None
+            save_progress(progress)
         
         # Final save and README generation
         print("\n" + "=" * 60)
@@ -638,21 +694,18 @@ if __name__ == "__main__":
         final_file = os.path.join(OUTPUT_PATH, f"{DEFAULT_CONFIG['DATASET_NAME']}-{size_k}k-{fmt}.json")
         save_json(data_to_save, final_file)
         
-        # Generate and save README
-        readme_content = generate_readme(DEFAULT_CONFIG['DATASET_NAME'], len(all_qa_data), all_keywords)
-        readme_file = os.path.join(OUTPUT_PATH, "README.md")
-        with open(readme_file, 'w', encoding='utf-8') as f:
-            f.write(readme_content)
-        
-        # Clean up temporary working file
+        # README.md is generated centrally by the webapp via datacore.io.readme
+        # after the job completes; the tool no longer writes its own.
+
+        # Clean up temporary working file + progress checkpoint
         if os.path.exists(dataset_file):
             os.remove(dataset_file)
-        
+        clear_progress()
+
         usage = client.get_usage_stats()
         print(f"TOKENS {usage['prompt_tokens']}/{usage['completion_tokens']}", flush=True)
 
         print(f"\nFinal dataset: {final_file}")
-        print(f"README: {readme_file}")
         print(f"Total Q&A pairs: {len(all_qa_data)}")
         print(f"Token usage: {usage['total_tokens']:,} total ({usage['prompt_tokens']:,} prompt / {usage['completion_tokens']:,} completion)")
         print("\n" + "=" * 60)

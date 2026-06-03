@@ -6,9 +6,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.css">
-    <link rel="stylesheet" href="/static/app.css">
+    <link rel="stylesheet" href="/static/app.css?v=nav5">
 </head>
 <body>
+    <div class="nav-backdrop" id="nav-backdrop"></div>
     <div class="container">
         <!-- Header -->
         <div class="header" id="app-header">
@@ -18,14 +19,20 @@
         </div>
         
         <!-- Tool Selector -->
-        <div class="tool-selector">
-            <div class="tool-buttons">
+        <div class="tool-selector" id="tool-selector">
+            <button class="nav-toggle" id="nav-toggle" aria-label="Open tools menu" aria-expanded="false">
+                <span class="nav-toggle-bar"></span>
+                <span class="nav-toggle-bar"></span>
+                <span class="nav-toggle-bar"></span>
+            </button>
+            <div class="tool-buttons" id="tool-buttons">
                 <button class="tool-btn" data-tool="databird" title="Procedural Q&A generation">DataBird</button>
                 <button class="tool-btn" data-tool="datapersona" title="Rewrite with personas">DataPersona</button>
                 <button class="tool-btn" data-tool="dataqa" title="Web scraping to Q&A">DataQA</button>
                 <button class="tool-btn" data-tool="datawriter" title="Generate documents">DataWriter</button>
                 <button class="tool-btn" data-tool="dataconvo" title="Expand conversations">DataConvo</button>
                 <button class="tool-btn" data-tool="datathink" title="Enhance with reasoning">DataThink</button>
+                <button class="tool-btn" data-tool="datadoubler" title="Expand dataset with question variants">DataDoubler</button>
                 <div class="tool-separator"></div>
                 <button class="tool-btn" data-tool="datamix" title="Mix HuggingFace datasets">DataMix</button>
                 <button class="tool-btn" data-tool="reformat" title="Reformat datasets">Reformat</button>
@@ -145,7 +152,7 @@
                 <div class="form-group">
                     <label>
                         <input type="checkbox" id="pref_include_reasoning" style="margin-right:6px;">
-                        Include &lt;think&gt; reasoning blocks in DataThink output
+                        Include &lt;think&gt; reasoning blocks in DataBird output
                     </label>
                 </div>
                 <div class="form-group">
@@ -188,6 +195,6 @@
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.js"></script>
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=nav5"></script>
 </body>
 </html>

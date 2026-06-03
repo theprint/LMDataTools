@@ -63,13 +63,15 @@
         /* Tool Selector */
         .tool-selector {
             display: flex;
-            justify-content: space-between;
             align-items: center;
             gap: 12px;
             padding: 20px 30px;
             background: #1a1f3a;
             border-bottom: 1px solid rgba(0, 212, 255, 0.1);
             flex-wrap: wrap;
+        }
+        .tool-selector > .right-aligned-buttons {
+            margin-left: auto;
         }
 
         .tool-buttons {
@@ -821,7 +823,98 @@
             cursor: pointer;
         }
         
-        /* Responsive */
+        /* Hamburger toggle — hidden on desktop */
+        .nav-toggle {
+            display: none;
+            flex-direction: column;
+            justify-content: space-between;
+            width: 40px;
+            height: 34px;
+            padding: 7px 6px;
+            background: #1e2742;
+            border: 2px solid rgba(0, 212, 255, 0.2);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s;
+        }
+        .nav-toggle:hover {
+            border-color: #00d4ff;
+            background: #252d47;
+        }
+        .nav-toggle-bar {
+            display: block;
+            height: 2px;
+            width: 100%;
+            background: #00d4ff;
+            border-radius: 2px;
+            transition: transform 0.25s, opacity 0.2s;
+        }
+        .tool-selector.drawer-open .nav-toggle .nav-toggle-bar:nth-child(1) {
+            transform: translateY(9px) rotate(45deg);
+        }
+        .tool-selector.drawer-open .nav-toggle .nav-toggle-bar:nth-child(2) {
+            opacity: 0;
+        }
+        .tool-selector.drawer-open .nav-toggle .nav-toggle-bar:nth-child(3) {
+            transform: translateY(-9px) rotate(-45deg);
+        }
+
+        .nav-backdrop {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(10, 14, 39, 0.55);
+            z-index: 998;
+        }
+        .nav-backdrop.visible { display: block; }
+
+        /* Drawer mode — triggered by JS when the flat row doesn't fit, OR on narrow viewports */
+        .tool-selector.force-drawer .nav-toggle {
+            display: flex;
+        }
+        .tool-selector.force-drawer {
+            position: relative;
+            padding: 14px 20px;
+        }
+        .tool-selector.force-drawer .tool-buttons {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            flex-direction: column;
+            align-items: stretch;
+            gap: 8px;
+            padding: 16px 20px;
+            background: #1a1f3a;
+            border-bottom: 1px solid rgba(0, 212, 255, 0.15);
+            border-right: 1px solid rgba(0, 212, 255, 0.15);
+            box-shadow: 0 12px 24px rgba(0, 0, 0, 0.4);
+            z-index: 999;
+        }
+        /* On non-mobile widths, constrain the drawer to a card-like width
+           anchored to the hamburger on the left. */
+        @media (min-width: 700px) {
+            .tool-selector.force-drawer .tool-buttons {
+                right: auto;
+                width: 320px;
+                border-right: 1px solid rgba(0, 212, 255, 0.15);
+                border-bottom-right-radius: 10px;
+            }
+        }
+        .tool-selector.force-drawer.drawer-open .tool-buttons {
+            display: flex;
+        }
+        .tool-selector.force-drawer .tool-buttons .tool-btn {
+            width: 100%;
+            text-align: left;
+        }
+        .tool-selector.force-drawer .tool-separator {
+            width: 100%;
+            height: 1px;
+            margin: 4px 0;
+        }
+
         @media (max-width: 1024px) {
             .container {
                 height: auto;

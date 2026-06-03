@@ -21,12 +21,13 @@ from datacore.topics import get_random_topic
 # Default configuration
 DEFAULT_CONFIG = {
     "DOCUMENT_COUNT": 500,
-    "MIN_TOKENS": 200, # New: Minimum token length
+    "MIN_TOKENS": 200,
     "MAX_TOKENS": 10000,
     "TEMPERATURE": 0.8,
     "DATASET_NAME": "my-writer-dataset",
     "JOB_ID": "default-job",
-    "ADD_SUMMARY": False, # New: Option to add summary
+    "ADD_SUMMARY": False,
+    "SAVE_INTERVAL": 50,
 }
 
 DEFAULT_CONFIG = load_tool_config(DEFAULT_CONFIG, tool_name="datawriter")
@@ -38,7 +39,8 @@ TEMPERATURE = DEFAULT_CONFIG["TEMPERATURE"]
 DATASET_NAME = DEFAULT_CONFIG["DATASET_NAME"]
 JOB_ID = DEFAULT_CONFIG["JOB_ID"]
 ADD_SUMMARY = DEFAULT_CONFIG["ADD_SUMMARY"]
- 
+SAVE_INTERVAL = DEFAULT_CONFIG["SAVE_INTERVAL"]
+
 OUTPUT_PATH = "." # Save files to the current job directory
 
 # Topic tier weights (must sum to 1.0)
@@ -67,20 +69,38 @@ def generate_unique_id(length=8):
 
 if __name__ == "__main__":
     # Initialize
-    client = LLMClient(base_url=config.LLM_BASE_URL, default_model=os.getenv("LLM_MODEL_NAME", config.LLM_MODEL)) 
+    client = LLMClient(base_url=config.LLM_BASE_URL, default_model=os.getenv("LLM_MODEL_NAME", config.LLM_MODEL))
     persona_gen = PersonaGenerator(client=client)
-    
-    all_entries = []
-    
+
     # Validate token range
     if MIN_TOKENS >= MAX_TOKENS:
         raise ValueError(f"MIN_TOKENS ({MIN_TOKENS}) must be less than MAX_TOKENS ({MAX_TOKENS}).")
+
+    # ── Resume from checkpoint ────────────────────────────────────────────────
+    checkpoint_path = os.path.join(OUTPUT_PATH, f"{DATASET_NAME}-checkpoint.json")
+    all_entries = []
+    resume_from = 0
+    if os.path.exists(checkpoint_path):
+        try:
+            with open(checkpoint_path, 'r', encoding='utf-8') as f:
+                ckpt = json.load(f)
+            all_entries = ckpt.get("entries", [])
+            resume_from = ckpt.get("generated_count", 0)
+            print(f"[datawriter] Resuming from document {resume_from + 1}, "
+                  f"{len(all_entries)} documents already generated.")
+        except Exception as e:
+            print(f"[datawriter] Warning: could not read checkpoint ({e}), starting from scratch.")
+            all_entries = []
+            resume_from = 0
 
     print(f"Generating {DOCUMENT_COUNT} documents...")
     print(f"Output directory: {OUTPUT_PATH}\n")
     doc_reporter = ProgressReporter(total=DOCUMENT_COUNT, phase="Generating documents")
 
     for i in range(DOCUMENT_COUNT):
+        if i < resume_from:
+            doc_reporter.update(i + 1)
+            continue
         print(f"=== Generating document {i+1} of {DOCUMENT_COUNT} ===", flush=True)
         doc_reporter.update(i + 1)
         
@@ -140,7 +160,11 @@ if __name__ == "__main__":
         print(f"  {response[:100]}...\n", flush=True)
         
         all_entries.append(entry)
-    
+
+        if SAVE_INTERVAL > 0 and len(all_entries) % SAVE_INTERVAL == 0:
+            save_json({"generated_count": i + 1, "entries": all_entries}, checkpoint_path)
+            print(f"  [checkpoint] Saved {len(all_entries)} documents.", flush=True)
+
     # Generate summaries if requested
     if ADD_SUMMARY:
         print(f"=== Generating summaries for {len(all_entries)} documents ===", flush=True)
@@ -186,6 +210,9 @@ if __name__ == "__main__":
     filepath = os.path.join(OUTPUT_PATH, filename)
 
     save_json(all_entries, filepath)
+
+    if os.path.exists(checkpoint_path):
+        os.remove(checkpoint_path)
 
     usage = client.get_usage_stats()
     print(f"TOKENS {usage['prompt_tokens']}/{usage['completion_tokens']}", flush=True)

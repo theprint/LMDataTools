@@ -261,14 +261,95 @@ let currentTool = null;
                             llmModelTextInput.value = providerSettings.llm_model || '';
                         }
                     }        
+        // Hamburger nav drawer — triggers whenever the flat row wraps to 2+ lines.
+        (function setupNavDrawer() {
+            const selector = document.getElementById('tool-selector');
+            const toggle = document.getElementById('nav-toggle');
+            const backdrop = document.getElementById('nav-backdrop');
+            const buttons = document.getElementById('tool-buttons');
+            if (!selector || !toggle || !buttons) return;
+
+            function openDrawer() {
+                selector.classList.add('drawer-open');
+                backdrop && backdrop.classList.add('visible');
+                toggle.setAttribute('aria-expanded', 'true');
+            }
+            function closeDrawer() {
+                selector.classList.remove('drawer-open');
+                backdrop && backdrop.classList.remove('visible');
+                toggle.setAttribute('aria-expanded', 'false');
+            }
+            toggle.addEventListener('click', () => {
+                if (selector.classList.contains('drawer-open')) closeDrawer();
+                else openDrawer();
+            });
+            backdrop && backdrop.addEventListener('click', closeDrawer);
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && selector.classList.contains('drawer-open')) closeDrawer();
+            });
+            selector.querySelectorAll('.tool-btn').forEach(btn => {
+                btn.addEventListener('click', closeDrawer);
+            });
+
+            // Overflow detection: if the row wraps, force drawer mode.
+            // Measure by temporarily dropping drawer mode (hidden), observing wrap, restoring.
+            let rafHandle = null;
+            function measureAndApply() {
+                rafHandle = null;
+                const rab = selector.querySelector('.right-aligned-buttons');
+                if (!rab) return;
+
+                const wasDrawer = selector.classList.contains('force-drawer');
+                if (wasDrawer) {
+                    selector.style.visibility = 'hidden';
+                    selector.classList.remove('force-drawer');
+                    void selector.offsetHeight; // force reflow
+                }
+
+                // Use rendered rectangles (align-items: center makes offsetTop unreliable
+                // when siblings have different heights).
+                const overlapY = (a, b) => a.bottom > b.top + 2 && b.bottom > a.top + 2;
+                let wraps = false;
+
+                const kidRects = Array.from(buttons.children).map(k => k.getBoundingClientRect());
+                if (kidRects.length > 1) {
+                    const first = kidRects[0];
+                    wraps = kidRects.some(r => !overlapY(first, r));
+                }
+                if (!wraps) {
+                    const bRect = buttons.getBoundingClientRect();
+                    const rRect = rab.getBoundingClientRect();
+                    if (!overlapY(bRect, rRect)) wraps = true;
+                }
+
+                if (wraps) {
+                    selector.classList.add('force-drawer');
+                } else if (wasDrawer) {
+                    closeDrawer();
+                }
+                if (wasDrawer) selector.style.visibility = '';
+            }
+            window.checkNavFit = function() {
+                if (rafHandle) cancelAnimationFrame(rafHandle);
+                rafHandle = requestAnimationFrame(measureAndApply);
+            };
+
+            window.addEventListener('resize', window.checkNavFit);
+            if (typeof ResizeObserver === 'function') {
+                new ResizeObserver(window.checkNavFit).observe(document.body);
+            }
+            window.checkNavFit();
+        })();
+
         // Tool button click handlers
         document.querySelectorAll('.tool-btn:not(#settings-btn)').forEach(btn => {
             btn.addEventListener('click', (event) => {
                 // Update active state
                 document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
-                
+
                 startJobBtn.style.display = 'inline-block';
+                if (typeof window.checkNavFit === 'function') window.checkNavFit();
 
                 // Get tool info
                 const toolId = btn.dataset.tool;
@@ -322,6 +403,10 @@ let currentTool = null;
                     <div class="tool-card" data-tool="reformat">
                         <h3>Reformat</h3>
                         <p>Converts a JSON dataset to a different standard format like Alpaca, ShareGPT, or simple Q&A pairs.</p>
+                    </div>
+                    <div class="tool-card" data-tool="datadoubler">
+                        <h3>DataDoubler</h3>
+                        <p>Expands a Q&A dataset by generating rephrased question variants with fresh answers. Each run doubles the dataset.</p>
                     </div>
                 </div>
             `;
@@ -406,6 +491,10 @@ let currentTool = null;
                                 <input type="checkbox" id="include_reasoning">
                                 <label>Include reasoning</label>
                             </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Save Interval</label>
+                            <input type="number" id="save_interval" value="250">
                         </div>
                     `;
                     formHTML += await buildPersonaSelector();
@@ -544,7 +633,19 @@ let currentTool = null;
                     const fileInput = newConfigContent.querySelector('#files');
                     if (fileInput) {
                         fileInput.addEventListener('change', validateForm);
-}
+                    }
+
+                    // Restore last-used confidence_threshold (respects 0)
+                    try {
+                        const savedResp = await fetch('/api/settings/dataqa');
+                        if (savedResp.ok) {
+                            const saved = await savedResp.json();
+                            if (Number.isFinite(saved.confidence_threshold)) {
+                                const ct = document.getElementById('confidence_threshold');
+                                if (ct) ct.value = saved.confidence_threshold;
+                            }
+                        }
+                    } catch (_) { /* first run, no saved settings — keep default */ }
 
                     // Add the toggle function to the window scope
                     window.toggleDataQAPerspectives = () => {
@@ -761,10 +862,12 @@ let currentTool = null;
                             <label>Mode</label>
                             <select id="think_mode">
                                 <option value="insert_reasoning" selected>Insert Reasoning — keep original answer</option>
+                                <option value="regenerate">Regenerate — new answer via reasoning</option>
                                 <option value="generate_new">Generate New — questions only, build from scratch</option>
                             </select>
                             <p style="color: #8a93a2; font-size: 12px; margin-top: 5px;">
                                 <strong>Insert Reasoning:</strong> adds a &lt;think&gt; block to each entry; original answer is kept unchanged.<br>
+                                <strong>Regenerate:</strong> reasons from the existing question and produces a fresh answer, replacing the original.<br>
                                 <strong>Generate New:</strong> upload questions only — reasoning and answer are generated from scratch.
                             </p>
                         </div>
@@ -809,6 +912,60 @@ let currentTool = null;
                     formHTML += await buildPersonaSelector();
                     newConfigContent.innerHTML = formHTML;
                     break;
+
+                case 'datadoubler':
+                    formHTML += `
+                        <div class="form-group">
+                            <label>Dataset Name</label>
+                            <input type="text" id="dataset_name" value="doubled-dataset">
+                        </div>
+                        <div class="form-group">
+                            <label>Source</label>
+                            <select id="source_type" onchange="toggleDoublerSourceType()">
+                                <option value="local" selected>Local File</option>
+                                <option value="huggingface">Hugging Face</option>
+                            </select>
+                        </div>
+                        <div class="form-group" id="doubler-local-group">
+                            <label>Source File (.json or .jsonl)</label>
+                            <input type="file" id="file" accept=".json,.jsonl">
+                            <p style="color: #8a93a2; font-size: 12px; margin-top: 5px;">Supports Alpaca, ShareGPT, and Q&amp;A formats.</p>
+                        </div>
+                        <div class="form-group" id="doubler-hf-group" style="display: none;">
+                            <label>Hugging Face Dataset</label>
+                            <input type="text" id="hf_dataset" placeholder="username/dataset-name">
+                            <label style="margin-top: 10px;">Subset (optional)</label>
+                            <input type="text" id="hf_subset" placeholder="e.g. train, default">
+                        </div>
+                        <div class="form-group">
+                            <label>Doublification Runs (1–4)</label>
+                            <input type="number" id="runs" min="1" max="4" value="1">
+                            <p style="color: #8a93a2; font-size: 12px; margin-top: 5px;">Each run doubles the working set. 1 run = 2×, 2 = 4×, 3 = 8×, 4 = 16×.</p>
+                        </div>
+                        <div class="form-group">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <input type="checkbox" id="allow_negative" checked>
+                                <label for="allow_negative" style="margin: 0;">Allow negative-framed variants</label>
+                            </div>
+                            <p style="color: #8a93a2; font-size: 12px; margin-top: 5px;">When enabled, the LLM may occasionally flip the question (e.g. "what NOT to do") if that produces a realistic variant. The variant answer is always generated fresh from the variant question.</p>
+                        </div>
+                    `;
+                    formHTML += await buildPersonaSelector();
+                    newConfigContent.innerHTML = formHTML;
+                    break;
+            }
+
+            // DataDoubler: hook source-type toggle
+            const doublerSourceSel = newConfigContent.querySelector('#source_type');
+            if (doublerSourceSel && tool.id === 'datadoubler') {
+                window.toggleDoublerSourceType = function() {
+                    const t = document.getElementById('source_type').value;
+                    const local = document.getElementById('doubler-local-group');
+                    const hf = document.getElementById('doubler-hf-group');
+                    if (local) local.style.display = (t === 'local') ? 'block' : 'none';
+                    if (hf) hf.style.display = (t === 'huggingface') ? 'block' : 'none';
+                    validateForm();
+                };
             }
 
             // Add event listeners for validation and form-state persistence
@@ -829,7 +986,8 @@ let currentTool = null;
             // Restore persisted state + add Reset button after form DOM is fully ready.
             // datapersona builds async and handles its own restore inside buildDataPersonaForm().
             if (tool.id !== 'datapersona') {
-                setTimeout(() => {
+                setTimeout(async () => {
+                    await applyServerSideDefaults(tool.id);
                     if (!skipRestore) restoreFormState(tool.id);
                     addFormFooter(tool.id);
                     validateForm();
@@ -930,6 +1088,7 @@ let currentTool = null;
                 });
 
                 // Restore persisted state and add Reset button
+                await applyServerSideDefaults('datapersona');
                 restoreFormState('datapersona', formContainer);
                 addFormFooter('datapersona');
                 validateForm(); // Initial validation
@@ -1196,6 +1355,20 @@ let currentTool = null;
                     const thinkFile = document.getElementById('file').files;
                     isValid = config.dataset_name && thinkFile && thinkFile.length > 0;
                     break;
+                case 'datadoubler': {
+                    const srcType = (document.getElementById('source_type') || {}).value || 'local';
+                    let hasSource = false;
+                    if (srcType === 'local') {
+                        const f = document.getElementById('file');
+                        hasSource = !!(f && f.files && f.files.length > 0);
+                    } else {
+                        const hf = document.getElementById('hf_dataset');
+                        hasSource = !!(hf && hf.value.trim());
+                    }
+                    const runs = parseInt(config.runs, 10);
+                    isValid = !!config.dataset_name && hasSource && runs >= 1 && runs <= 4;
+                    break;
+                }
                 default:
                     isValid = false;
             }
@@ -1213,11 +1386,19 @@ let currentTool = null;
             const rowId = window.datasetRowCounter++;
             
             const rowHTML = `
-                <div class="dataset-row" id="dataset-row-${rowId}" style="background: #1e2742; border-radius: 8px; padding: 15px; margin-bottom: 12px; border: 2px solid rgba(0, 212, 255, 0.1); transition: all 0.2s;">
-                    <div style="display: grid; grid-template-columns: 2fr 1fr 1.5fr 1fr auto; gap: 10px; align-items: end;">
+                <div class="dataset-row" id="dataset-row-${rowId}" data-source-type="huggingface" style="background: #1e2742; border-radius: 8px; padding: 15px; margin-bottom: 12px; border: 2px solid rgba(0, 212, 255, 0.1); transition: all 0.2s;">
+                    <div style="display: grid; grid-template-columns: 1fr 2fr 1fr 1.5fr 1fr auto; gap: 10px; align-items: end;">
                         <div>
-                            <label style="display: block; margin-bottom: 6px; font-weight: 500; color: #c4cdd5; font-size: 12px;">Dataset Name</label>
+                            <label style="display: block; margin-bottom: 6px; font-weight: 500; color: #c4cdd5; font-size: 12px;">Source</label>
+                            <select class="dataset-type" onchange="toggleDatasetRowType(${rowId})" style="width: 100%; padding: 10px 12px; border: 2px solid rgba(0, 212, 255, 0.2); border-radius: 6px; font-size: 14px; font-family: inherit; background: #252d47; color: #e4e7eb; cursor: pointer;">
+                                <option value="huggingface">Hugging Face</option>
+                                <option value="local">Local File</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label style="display: block; margin-bottom: 6px; font-weight: 500; color: #c4cdd5; font-size: 12px;"><span class="dataset-name-label">Dataset Name</span></label>
                             <input type="text" class="dataset-name" placeholder="username/dataset-name" style="width: 100%; padding: 10px 12px; border: 2px solid rgba(0, 212, 255, 0.2); border-radius: 6px; font-size: 14px; transition: all 0.2s; font-family: inherit; background: #252d47; color: #e4e7eb;">
+                            <input type="file" class="dataset-file" accept=".json,.jsonl" style="display: none; width: 100%; padding: 8px; border: 2px solid rgba(0, 212, 255, 0.2); border-radius: 6px; font-size: 13px; background: #252d47; color: #e4e7eb;">
                         </div>
                         <div>
                             <label style="display: block; margin-bottom: 6px; font-weight: 500; color: #c4cdd5; font-size: 12px;">Weight</label>
@@ -1309,6 +1490,27 @@ let currentTool = null;
             validateForm();
         };
 
+        window.toggleDatasetRowType = function(rowId) {
+            const row = document.getElementById(`dataset-row-${rowId}`);
+            if (!row) return;
+            const typeSel = row.querySelector('.dataset-type');
+            const nameInput = row.querySelector('.dataset-name');
+            const fileInput = row.querySelector('.dataset-file');
+            const subsetInput = row.querySelector('.dataset-subset');
+            const nameLabel = row.querySelector('.dataset-name-label');
+            const isLocal = typeSel.value === 'local';
+            row.dataset.sourceType = typeSel.value;
+            nameInput.style.display = isLocal ? 'none' : 'block';
+            fileInput.style.display = isLocal ? 'block' : 'none';
+            if (subsetInput) {
+                subsetInput.disabled = isLocal;
+                subsetInput.placeholder = isLocal ? 'N/A' : 'train, test, etc.';
+                if (isLocal) subsetInput.value = '';
+            }
+            if (nameLabel) nameLabel.textContent = isLocal ? 'File' : 'Dataset Name';
+            validateForm();
+        };
+
         window.removeDatasetRow = function(rowId) {
             const row = document.getElementById(`dataset-row-${rowId}`);
             if (row) {
@@ -1372,11 +1574,6 @@ let currentTool = null;
                     config[id] = input.checked;
                 } else if (input.type === 'number') {
                     config[id] = parseFloat(input.value);
-                } else if (id === 'dataset_size') {
-                    const size = input.value;
-                    config['dataset_size'] = size;
-                    config['extended_auto'] = (size === 'medium' || size === 'large');
-                    config['extra_extended_auto'] = (size === 'large');
                 } else if (id === 'manual_perspectives') {
                     // Parse plain-sentence perspectives, one per line.
                     // This MUST come before the generic TEXTAREA handler.
@@ -1397,28 +1594,47 @@ let currentTool = null;
                 config['persona_name'] = configSection.querySelector('#persona_name').value;
             }
 
-            // Special handling for DataMix - collect dataset sources
+            // Special handling for DataMix - collect dataset sources (HF + local files)
             if (currentTool && currentTool.id === 'datamix') {
                 const datasetRows = document.querySelectorAll('.dataset-row');
                 const dataset_sources = [];
-                
+                const localFiles = [];
+
                 datasetRows.forEach(row => {
-                    const name = row.querySelector('.dataset-name').value.trim();
+                    const sourceType = row.dataset.sourceType || 'huggingface';
                     const weight = parseFloat(row.querySelector('.dataset-weight').value) || 0;
-                    const subset = row.querySelector('.dataset-subset').value.trim() || null;
                     const format = row.querySelector('.dataset-format').value;
-                    
-                    if (name && weight > 0) {
+
+                    if (weight <= 0) return;
+
+                    if (sourceType === 'local') {
+                        const fileInput = row.querySelector('.dataset-file');
+                        const file = fileInput && fileInput.files && fileInput.files[0];
+                        if (!file) return;
+                        localFiles.push(file);
+                        dataset_sources.push({
+                            name: file.name,
+                            weight: weight,
+                            subset: null,
+                            format: format === 'auto' ? null : format,
+                            type: 'local'
+                        });
+                    } else {
+                        const name = row.querySelector('.dataset-name').value.trim();
+                        const subset = row.querySelector('.dataset-subset').value.trim() || null;
+                        if (!name) return;
                         dataset_sources.push({
                             name: name,
                             weight: weight,
                             subset: subset,
-                            format: format === 'auto' ? null : format
+                            format: format === 'auto' ? null : format,
+                            type: 'huggingface'
                         });
                     }
                 });
-                
+
                 config['dataset_sources'] = dataset_sources;
+                config['__local_files__'] = localFiles;
             }
 
             // Add LLM settings — read from localStorage (written by saveSettings())
@@ -1512,8 +1728,8 @@ let currentTool = null;
                     // Append other form fields
                     formData.append('dataset_name', config.dataset_name);
                     formData.append('sources', (config.sources || []).join('\n'));
-                    formData.append('auto_perspectives', config.auto_perspectives || true);
-                    formData.append('confidence_threshold', config.confidence_threshold || 0.68);
+                    formData.append('auto_perspectives', config.auto_perspectives !== false);
+                    formData.append('confidence_threshold', Number.isFinite(config.confidence_threshold) ? config.confidence_threshold : 0.68);
                     formData.append('use_persona', config.use_persona || false);
                     formData.append('persona_name', config.persona_name || '');
                     formData.append('manual_perspectives', config.manual_perspectives ? JSON.stringify(config.manual_perspectives) : '');
@@ -1557,6 +1773,52 @@ let currentTool = null;
                     formData.append('llm_settings', JSON.stringify(config.llm_settings));
 
                     response = await fetch(`/api/jobs/reformat`, {
+                        method: 'POST',
+                        body: formData
+                    });
+                } else if (currentTool.id === 'datadoubler') {
+                    const formData = new FormData();
+                    const srcType = document.getElementById('source_type').value;
+                    formData.append('dataset_name', config.dataset_name);
+                    formData.append('source_type', srcType);
+                    formData.append('runs', config.runs || 1);
+                    formData.append('allow_negative', !!config.allow_negative);
+                    formData.append('use_persona', !!config.use_persona);
+                    formData.append('persona_name', config.persona_name || '');
+                    formData.append('llm_settings', JSON.stringify(config.llm_settings));
+
+                    if (srcType === 'local') {
+                        const f = document.getElementById('file').files[0];
+                        if (!f) { alert('Please select a source file.'); return; }
+                        formData.append('file', f);
+                        formData.append('hf_dataset', '');
+                        formData.append('hf_subset', '');
+                    } else {
+                        formData.append('hf_dataset', (document.getElementById('hf_dataset').value || '').trim());
+                        formData.append('hf_subset', (document.getElementById('hf_subset').value || '').trim());
+                    }
+
+                    response = await fetch(`/api/jobs/datadoubler`, {
+                        method: 'POST',
+                        body: formData
+                    });
+                } else if (currentTool.id === 'datamix') {
+                    const formData = new FormData();
+                    const localFiles = config.__local_files__ || [];
+                    for (const f of localFiles) {
+                        formData.append('files', f);
+                    }
+                    formData.append('dataset_name', config.dataset_name);
+                    formData.append('total_samples', config.total_samples);
+                    formData.append('seed', config.seed);
+                    formData.append('dataset_sources', JSON.stringify(config.dataset_sources || []));
+                    formData.append('min_instruction_length', config.min_instruction_length);
+                    formData.append('max_instruction_length', config.max_instruction_length);
+                    formData.append('min_output_length', config.min_output_length);
+                    formData.append('max_output_length', config.max_output_length);
+                    formData.append('llm_settings', JSON.stringify(config.llm_settings));
+
+                    response = await fetch(`/api/jobs/datamix`, {
                         method: 'POST',
                         body: formData
                     });
@@ -2171,6 +2433,68 @@ let currentTool = null;
             });
         });
 
+        // ── Apply server-side defaults to a tool form ────────────────────────
+        // Fetches per-tool saved settings (falls back to global prefs for
+        // temperature, save_interval, persona) and populates matching fields.
+        // Runs before restoreFormState so localStorage state can still override.
+        async function applyServerSideDefaults(toolId) {
+            try {
+                const [toolResp, globalResp] = await Promise.all([
+                    fetch(`/api/settings/${toolId}`),
+                    fetch('/api/settings/global/prefs'),
+                ]);
+                const toolSettings = toolResp.ok ? await toolResp.json() : {};
+                const globalPrefs  = globalResp.ok ? await globalResp.json() : {};
+
+                // Helper: first defined value wins
+                const pick = (...vals) => vals.find(v => v !== undefined && v !== null && v !== '');
+
+                // Save Interval
+                const saveIntervalEl = document.getElementById('save_interval');
+                if (saveIntervalEl) {
+                    const val = pick(toolSettings.save_interval, globalPrefs.default_save_interval);
+                    if (val !== undefined) saveIntervalEl.value = val;
+                }
+
+                // Temperature (generic id="temperature" slider)
+                const tempEl = document.getElementById('temperature');
+                if (tempEl) {
+                    const val = pick(toolSettings.temperature, globalPrefs.default_temperature);
+                    if (val !== undefined) {
+                        tempEl.value = val;
+                        const display = document.getElementById('temperature-value');
+                        if (display) display.textContent = parseFloat(val).toFixed(2);
+                    }
+                }
+
+                // Include Reasoning
+                const reasoningEl = document.getElementById('include_reasoning');
+                if (reasoningEl) {
+                    const val = pick(toolSettings.include_reasoning, globalPrefs.include_reasoning_output);
+                    if (val !== undefined) reasoningEl.checked = !!val;
+                }
+
+                // Persona: use_persona + persona_name
+                const usePersonaEl = document.getElementById('use_persona');
+                if (usePersonaEl) {
+                    const useVal = pick(toolSettings.use_persona);
+                    if (useVal !== undefined) {
+                        usePersonaEl.checked = !!useVal;
+                        if (typeof window.togglePersonaDropdown === 'function') {
+                            window.togglePersonaDropdown(!!useVal);
+                        }
+                    }
+                    const nameEl = document.getElementById('persona_name');
+                    if (nameEl) {
+                        const nameVal = pick(toolSettings.persona_name, globalPrefs.default_persona);
+                        if (nameVal) nameEl.value = nameVal;
+                    }
+                }
+            } catch (e) {
+                console.warn(`[applyServerSideDefaults] ${toolId}:`, e);
+            }
+        }
+
         // ── Global Preferences ───────────────────────────────────────────────
         async function loadGlobalPrefs() {
             try {
@@ -2341,8 +2665,7 @@ let currentTool = null;
                         const error = await response.json();
                         throw new Error(error.detail || 'Failed to clear failed jobs');
                     }
-                    alert('Failed jobs cleared successfully!');
-                    loadJobs();
+                    await loadJobs();
                 } catch (error) {
                     alert(`Error clearing failed jobs: ${error.message}`);
                     console.error('Error:', error);

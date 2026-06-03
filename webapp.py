@@ -3,6 +3,7 @@
 Web interface for DataSynthesis Suite
 """
 from datapersona import DEFAULT_CONFIG as DATAPERSONA_DEFAULTS
+from datacore.io.readme import generate_standard_readme, generate_dataset_summary
 from openai import OpenAI # Import OpenAI client for model listing
 from fastapi import FastAPI, BackgroundTasks, HTTPException, WebSocket, File, UploadFile, Form
 from starlette.websockets import WebSocketDisconnect
@@ -12,7 +13,6 @@ from pydantic import BaseModel
 import subprocess
 import json
 import os
-import random
 import shutil
 import zipfile
 from datetime import datetime
@@ -54,8 +54,25 @@ active_processes: Dict[str, asyncio.subprocess.Process] = {}
 JOBS_DIR = "./jobs"
 os.makedirs(JOBS_DIR, exist_ok=True)
 
-# User settings storage
-SETTINGS_FILE = "./user_settings.json"
+# User settings storage. Lives under JOBS_DIR (which is the only volume-mounted
+# path in the default docker-compose setup) so prefs survive container restarts.
+# Override with LMDT_SETTINGS_FILE if you want a different location.
+SETTINGS_FILE = os.getenv("LMDT_SETTINGS_FILE", os.path.join(JOBS_DIR, "user_settings.json"))
+
+# One-time migration: if an old ./user_settings.json exists at the project root
+# (where the file used to live), copy it into the new location so prefs aren't lost.
+_LEGACY_SETTINGS_FILE = "./user_settings.json"
+if (
+    os.path.exists(_LEGACY_SETTINGS_FILE)
+    and not os.path.exists(SETTINGS_FILE)
+    and os.path.abspath(_LEGACY_SETTINGS_FILE) != os.path.abspath(SETTINGS_FILE)
+):
+    try:
+        with open(_LEGACY_SETTINGS_FILE, "r") as _src, open(SETTINGS_FILE, "w") as _dst:
+            _dst.write(_src.read())
+        print(f"[settings] Migrated {_LEGACY_SETTINGS_FILE} -> {SETTINGS_FILE}")
+    except Exception as _e:
+        print(f"[settings] Migration warning: {_e}")
 
 # ============================================================================
 # Data Models
@@ -84,6 +101,9 @@ class DataBirdConfig(BaseModel):
     clean_score: float = 0.76
     manual_perspectives: Optional[List] = None
     include_reasoning: bool = False
+    use_persona: bool = False
+    persona_name: Optional[str] = None
+    save_interval: int = 250
     llm_settings: Optional[LLMSettings] = None
 
 class DataWriterConfig(BaseModel):
@@ -196,311 +216,6 @@ def create_job_workspace(job_id: str, tool_name: str, dataset_name: str, config:
     return job_dir
 
 
-TOOL_DISPLAY_NAMES = {
-    "datawriter": "DataWriter",
-    "databird": "DataBird",
-    "datapersona": "DataPersona",
-    "dataconvo": "DataConvo",
-    "datathink": "DataThink",
-    "dataqa": "DataQA",
-    "datamix": "DataMix",
-    "reformat": "Reformat",
-}
-
-TOOL_DESCRIPTIONS = {
-    "datawriter":  "Generates long-form documents from topics and tiers.",
-    "databird":    "Generates high-quality Q&A pairs from topic lists with quality scoring.",
-    "datapersona": "Re-styles existing datasets using AI personas.",
-    "dataconvo":   "Expands short conversations into multi-turn dialogues.",
-    "datathink":   "Enhances datasets with chain-of-thought reasoning steps.",
-    "dataqa":      "Generates Q&A datasets from web content or local files.",
-    "datamix":     "Samples and combines datasets from Hugging Face.",
-    "reformat":    "Converts datasets between Alpaca, ShareGPT, and Q&A formats.",
-}
-
-TOOL_TASK_CATEGORIES = {
-    "databird":    ["question-answering", "text-generation"],
-    "dataqa":      ["question-answering"],
-    "datapersona": ["conversational", "text-generation"],
-    "dataconvo":   ["conversational"],
-    "datawriter":  ["text-generation"],
-    "datathink":   ["text-generation"],
-    "datamix":     ["text-generation"],
-    "reformat":    ["text-generation"],
-}
-
-TOOL_EXTRA_TAGS = {
-    "databird":    ["instruction-tuning", "qa-pairs"],
-    "dataqa":      ["instruction-tuning", "qa-pairs", "retrieval-augmented"],
-    "datapersona": ["instruction-tuning", "persona"],
-    "dataconvo":   ["instruction-tuning", "multi-turn"],
-    "datawriter":  ["long-form", "documents"],
-    "datathink":   ["chain-of-thought", "reasoning"],
-    "datamix":     ["mixed"],
-    "reformat":    [],
-}
-
-# Known field descriptions per tool. Fields not listed fall back to an empty description.
-TOOL_FIELD_DESCRIPTIONS = {
-    "databird": {
-        "question":   "A generated user question about the topic",
-        "asker":      "The perspective or persona of the person asking",
-        "topic":      "The subject area the question is about",
-        "evaluation": "Automated quality score (0–1)",
-        "answer":     "Model-generated answer to the question",
-    },
-    "dataqa": {
-        "question":   "A generated user question",
-        "answer":     "Answer derived from source documents",
-        "source":     "URL or filename the answer was sourced from",
-        "confidence": "Confidence score for the answer quality (0–1)",
-    },
-    "datapersona": {
-        "question": "The original user question",
-        "answer":   "Response re-styled through the selected AI persona",
-        "persona":  "The persona name applied to the response",
-    },
-    "dataconvo": {
-        "conversation": "Multi-turn dialogue expanded from the source exchange",
-    },
-    "datawriter": {
-        "title":   "Document title",
-        "content": "Full generated document text",
-        "topic":   "Topic the document covers",
-        "tier":    "Writing complexity / target-audience tier",
-    },
-    "datathink": {
-        "question": "The original question",
-        "thinking": "Step-by-step chain-of-thought reasoning",
-        "answer":   "Final answer produced after reasoning",
-    },
-}
-
-
-def _size_category(n: int) -> str:
-    if n < 1_000:     return "n<1K"
-    if n < 10_000:    return "1K<n<10K"
-    if n < 100_000:   return "10K<n<100K"
-    if n < 1_000_000: return "100K<n<1M"
-    return "1M<n<10M"
-
-
-def _select_sample_entries(data: list, budget_chars: int = 1500) -> list:
-    """Return 2-4 random entries whose combined JSON length fits within budget_chars.
-
-    Long string values are truncated so a single verbose entry doesn't dominate
-    the prompt.  Always returns at least 2 entries (or all of them if fewer exist).
-    """
-    if not data:
-        return []
-    pool = random.sample(data, min(4, len(data)))
-    selected = []
-    used = 0
-    for entry in pool:
-        # Truncate long string values to keep the prompt readable
-        trimmed = {
-            k: (v[:400] + "…") if isinstance(v, str) and len(v) > 400 else v
-            for k, v in entry.items()
-        }
-        snippet = json.dumps(trimmed, ensure_ascii=False)
-        if used + len(snippet) > budget_chars and len(selected) >= 2:
-            break
-        selected.append(trimmed)
-        used += len(snippet)
-    return selected
-
-
-def _generate_dataset_summary(
-    data_file_contents: dict,
-    tool_name: str,
-    dataset_name: str,
-    llm_settings: dict,
-) -> str:
-    """Call the LLM to produce a single-paragraph human-readable dataset description.
-
-    Uses 2-4 random samples so the paragraph is grounded in the actual data rather
-    than just repeating the config settings.  Returns an empty string on any error
-    so README generation always succeeds even if the LLM is unavailable.
-    """
-    try:
-        all_data = next(
-            (data for data in data_file_contents.values() if isinstance(data, list) and data),
-            None,
-        )
-        if not all_data:
-            return ""
-
-        samples = _select_sample_entries(all_data)
-        if not samples:
-            return ""
-
-        samples_text = json.dumps(samples, indent=2, ensure_ascii=False)
-        display = TOOL_DISPLAY_NAMES.get(tool_name, tool_name)
-
-        system_prompt = (
-            "You are a concise technical writer. "
-            "Output ONLY the paragraph you are asked to write — no analysis, no numbered "
-            "steps, no preamble, no self-reflection, no headings. "
-            "Begin writing the paragraph immediately with its first word."
-        )
-        prompt = (
-            f"Write a single paragraph (3–5 sentences) for a machine learning dataset card.\n\n"
-            f"Dataset name: {dataset_name}\n"
-            f"Generated by: {display}\n\n"
-            f"Sample entries:\n{samples_text}\n\n"
-            f"Requirements:\n"
-            f"- Describe what the dataset contains, its topics/domains, and who it is most useful for\n"
-            f"- Be specific and concrete — mention actual subjects visible in the samples\n"
-            f"- Do not start with 'This dataset'"
-        )
-
-        from datacore.llm.client import LLMClient
-        client = LLMClient(
-            base_url=llm_settings.get("base_url"),
-            api_key=llm_settings.get("api_key") or "",
-            default_model=llm_settings.get("llm_model"),
-        )
-        summary = client.call(
-            prompt=prompt,
-            system_prompt=system_prompt,
-            temperature=0.5,
-            max_tokens=300,
-            # Suppresses visible chain-of-thought on Qwen3 / DeepSeek-R1 via vLLM.
-            # Providers that don't recognise this field silently ignore it.
-            extra_body={"enable_thinking": False},
-        )
-        return summary.strip()
-
-    except Exception as exc:
-        print(f"[readme] Could not generate dataset summary: {exc}")
-        return ""
-
-
-def generate_standard_readme(tool_name: str, dataset_name: str, data_file_contents: dict, metadata: dict, summary: str = "") -> str:
-    """Generate a Hugging Face-compatible dataset card (README.md) for any tool's output.
-
-    data_file_contents: dict mapping filename -> parsed JSON data (or None on error)
-    """
-    display_name = TOOL_DISPLAY_NAMES.get(tool_name, tool_name)
-    description  = TOOL_DESCRIPTIONS.get(tool_name, "")
-    task_cats    = TOOL_TASK_CATEGORIES.get(tool_name, ["text-generation"])
-    extra_tags   = TOOL_EXTRA_TAGS.get(tool_name, [])
-    field_descs  = TOOL_FIELD_DESCRIPTIONS.get(tool_name, {})
-
-    created_at = metadata.get("created_at", "")
-    if created_at:
-        try:
-            created_at = datetime.fromisoformat(created_at).strftime("%Y-%m-%d %H:%M UTC")
-        except Exception:
-            pass
-
-    # Introspect entry keys, count, and filename from the first data file
-    entry_keys    = []
-    entry_count   = 0
-    data_filename = ""
-    for filename, data in data_file_contents.items():
-        if isinstance(data, list) and data:
-            entry_keys    = list(data[0].keys())
-            entry_count   = len(data)
-            data_filename = filename
-            break
-
-    all_tags = ["synthetic", "llm-generated", "lmdatatools"] + extra_tags
-
-    # ── YAML front matter (Hugging Face dataset card metadata) ────────────────
-    yaml_lines = ["---"]
-    yaml_lines.append("language:")
-    yaml_lines.append("- en")
-    yaml_lines.append("task_categories:")
-    for cat in task_cats:
-        yaml_lines.append(f"- {cat}")
-    yaml_lines.append("tags:")
-    for tag in all_tags:
-        yaml_lines.append(f"- {tag}")
-    yaml_lines.append(f"pretty_name: {dataset_name}")
-    yaml_lines.append("size_categories:")
-    yaml_lines.append(f"- {_size_category(entry_count)}")
-    yaml_lines.append("---")
-    yaml_lines.append("")
-
-    # ── Body ──────────────────────────────────────────────────────────────────
-    body = []
-    body += [f"# {dataset_name}", ""]
-    body += [
-        f"> Generated with [LMDataTools](https://github.com/theprint/LMDataTools)"
-        f" using **{display_name}**.",
-        "",
-    ]
-    if description:
-        body += [description, ""]
-
-    if summary:
-        body += [summary, ""]
-
-    # Dataset Details table
-    body += [
-        "## Dataset Details",
-        "",
-        "| | |",
-        "|---|---|",
-        f"| **Entries** | {entry_count:,} |",
-        f"| **Created** | {created_at} |",
-        f"| **Format**  | JSON |",
-        f"| **Tool**    | {display_name} |",
-        "",
-    ]
-
-    # Dataset Structure
-    if entry_keys:
-        body += ["## Dataset Structure", ""]
-        body.append("Each entry contains the following fields:")
-        body.append("")
-        body.append("| Field | Description |")
-        body.append("|-------|-------------|")
-        for key in entry_keys:
-            desc = field_descs.get(key, "")
-            body.append(f"| `{key}` | {desc} |")
-        body.append("")
-
-    # Configuration
-    config = metadata.get("config", {})
-    if config:
-        skip_keys = {"job_id", "output_path", "llm_settings", "uploaded_filenames"}
-        # Don't show persona_name when persona is disabled — it's misleading to list
-        # a persona that was not actually applied to the generated data.
-        if not config.get("use_persona"):
-            skip_keys = skip_keys | {"persona_name"}
-        visible = {k: v for k, v in config.items()
-                   if k not in skip_keys and v not in (None, "", [], {})}
-        if visible:
-            body += ["## Configuration", "", "| Setting | Value |", "|---------|-------|"]
-            for k, v in visible.items():
-                body.append(f"| `{k}` | `{v}` |")
-            body.append("")
-
-    # Usage snippet
-    if data_filename:
-        body += [
-            "## Usage",
-            "",
-            "```python",
-            "import json",
-            "",
-            f'with open("{data_filename}") as f:',
-            "    data = json.load(f)",
-            "",
-            'print(f"Loaded {len(data)} entries")',
-            "print(data[0])",
-            "```",
-            "",
-        ]
-
-    body += [
-        "---",
-        "_Created with [LMDataTools](https://github.com/theprint/LMDataTools)_",
-    ]
-
-    return "\n".join(yaml_lines + body)
 
 
 def _patch_metadata_tokens(job_id: str, prompt_tokens: int, completion_tokens: int):
@@ -754,7 +469,7 @@ async def run_tool_subprocess(tool_name: str, job_id: str, config: dict):
                         job_metadata = json.load(f)
 
                 dataset_name = job_metadata.get("dataset_name", tool_name)
-                dataset_summary = _generate_dataset_summary(
+                dataset_summary = generate_dataset_summary(
                     data_file_contents, tool_name, dataset_name,
                     config.get("llm_settings") or {}
                 )
@@ -811,7 +526,8 @@ async def list_tools():
             {"id": "datamix", "name": "DataMix", "description": "Mix HuggingFace datasets"},
             {"id": "dataconvo", "name": "DataConvo", "description": "Expand conversations"},
             {"id": "reformat", "name": "Reformat", "description": "Convert dataset formats"},
-            {"id": "datathink", "name": "DataThink", "description": "Enhance datasets with reasoning steps"}
+            {"id": "datathink", "name": "DataThink", "description": "Enhance datasets with reasoning steps"},
+            {"id": "datadoubler", "name": "DataDoubler", "description": "Expand datasets via rephrased question variants"}
         ]
     }
 
@@ -978,7 +694,10 @@ async def run_databird(config: DataBirdConfig, background_tasks: BackgroundTasks
         "clean_score": config.clean_score,
         "full_auto": config.full_auto,
         "manual_perspectives": config.manual_perspectives,
-        "include_reasoning": config.include_reasoning
+        "include_reasoning": config.include_reasoning,
+        "use_persona": config.use_persona,
+        "persona_name": config.persona_name,
+        "save_interval": config.save_interval,
     }
     save_user_settings("databird", settings_to_save)
 
@@ -1012,20 +731,8 @@ async def run_dataqa(
 ):
     """Start DataQA job."""
     job_id = generate_job_id()
-    
-    config_dict = {
-        "dataset_name": dataset_name,
-        "sources": sources,
-        "auto_perspectives": auto_perspectives,
-        "confidence_threshold": confidence_threshold,
-        "use_persona": use_persona,
-        "persona_name": persona_name,
-        "files": [file.filename for file in files] if files else [],
-        "llm_settings": json.loads(llm_settings)
-    }
 
-    job_dir = create_job_workspace(job_id, "dataqa", dataset_name, config_dict)
-
+    job_dir = os.path.join(JOBS_DIR, job_id)
     import_dir = os.path.join(job_dir, "import")
     os.makedirs(import_dir, exist_ok=True)
 
@@ -1040,7 +747,7 @@ async def run_dataqa(
 
     # Parse sources from textarea
     source_list = [s.strip() for s in sources.split('\n') if s.strip()]
-    
+
     # Combine URLs and uploaded file paths
     all_sources = source_list + uploaded_file_paths
 
@@ -1056,13 +763,23 @@ async def run_dataqa(
         "llm_settings": json.loads(llm_settings)
     }
     
-    # Parse manual perspectives if provided
+    # Parse manual perspectives if provided. Only override auto_perspectives when
+    # a non-empty list is supplied — the JS sends "[]" whenever auto is on, and
+    # treating that as manual mode produced 0 perspectives at run time.
     if manual_perspectives.strip():
         try:
-            config_dict["manual_perspectives"] = json.loads(manual_perspectives)
-            config_dict["auto_perspectives"] = False
+            parsed_mp = json.loads(manual_perspectives)
+            if parsed_mp:
+                config_dict["manual_perspectives"] = parsed_mp
+                config_dict["auto_perspectives"] = False
         except:
             pass
+
+    # Persist workspace + metadata using the *parsed* config (sources as a list).
+    # Doing this after parsing ensures resume reads back a list, not the raw textarea string.
+    config_dict["files"] = [file.filename for file in files] if files else []
+    create_job_workspace(job_id, "dataqa", dataset_name, config_dict)
+    config_dict.pop("files", None)
 
     # Save user settings for next time
     settings_to_save = {
@@ -1204,17 +921,116 @@ async def run_reformat(
     return {"job_id": job_id, "status": "starting"}
 
 @app.post("/api/jobs/datamix")
-async def run_datamix(config: DataMixConfig, background_tasks: BackgroundTasks):
-    """Start DataMix job."""
+async def run_datamix(
+    background_tasks: BackgroundTasks,
+    dataset_name: str = Form(...),
+    total_samples: int = Form(10000),
+    seed: int = Form(310576),
+    dataset_sources: str = Form(...),
+    min_instruction_length: int = Form(10),
+    max_instruction_length: int = Form(4000),
+    min_output_length: int = Form(10),
+    max_output_length: int = Form(4000),
+    llm_settings: str = Form("{}"),
+    files: List[UploadFile] = File(default=[]),
+):
+    """Start DataMix job. Accepts multipart form so local-file sources can be uploaded alongside HuggingFace refs."""
     job_id = generate_job_id()
-    config_dict = config.dict()
-    config_dict["job_id"] = job_id
-    config_dict["output_format"] = get_global_pref("preferred_output_format", "alpaca")
 
-    job_dir = create_job_workspace(job_id, "datamix", config.dataset_name, config_dict)
+    try:
+        sources = json.loads(dataset_sources)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid dataset_sources JSON: {e}")
+
+    config_dict = {
+        "dataset_name": dataset_name,
+        "total_samples": total_samples,
+        "seed": seed,
+        "dataset_sources": sources,
+        "min_instruction_length": min_instruction_length,
+        "max_instruction_length": max_instruction_length,
+        "min_output_length": min_output_length,
+        "max_output_length": max_output_length,
+        "llm_settings": json.loads(llm_settings) if llm_settings else {},
+        "job_id": job_id,
+        "output_format": get_global_pref("preferred_output_format", "alpaca"),
+    }
+
+    job_dir = create_job_workspace(job_id, "datamix", dataset_name, config_dict)
+
+    if files:
+        import_dir = os.path.join(job_dir, "import")
+        os.makedirs(import_dir, exist_ok=True)
+        for f in files:
+            if not f or not f.filename:
+                continue
+            with open(os.path.join(import_dir, f.filename), "wb") as buffer:
+                shutil.copyfileobj(f.file, buffer)
 
     background_tasks.add_task(run_tool_subprocess, "datamix", job_id, config_dict)
     return {"job_id": job_id, "status": "starting"}
+
+@app.post("/api/jobs/datadoubler")
+async def run_datadoubler(
+    background_tasks: BackgroundTasks,
+    dataset_name: str = Form(...),
+    source_type: str = Form("local"),
+    hf_dataset: str = Form(""),
+    hf_subset: str = Form(""),
+    runs: int = Form(1),
+    allow_negative: bool = Form(True),
+    use_persona: bool = Form(False),
+    persona_name: str = Form(""),
+    llm_settings: str = Form("{}"),
+    file: Optional[UploadFile] = File(None),
+):
+    """Start a DataDoubler job. Source is either a local upload or a HF dataset ref."""
+    job_id = generate_job_id()
+
+    runs = max(1, min(4, int(runs)))
+
+    config_dict = {
+        "dataset_name":   dataset_name,
+        "source_type":    source_type,
+        "hf_dataset":     hf_dataset,
+        "hf_subset":      hf_subset or None,
+        "runs":           runs,
+        "allow_negative": bool(allow_negative),
+        "use_persona":    bool(use_persona),
+        "persona_name":   persona_name,
+        "llm_settings":   json.loads(llm_settings) if llm_settings else {},
+        "job_id":         job_id,
+        "output_format":  get_global_pref("preferred_output_format", "alpaca"),
+    }
+
+    if source_type == "local":
+        if not file or not file.filename:
+            raise HTTPException(status_code=400, detail="A source file is required when source_type=local.")
+        config_dict["file"] = file.filename
+    elif source_type == "huggingface":
+        if not hf_dataset.strip():
+            raise HTTPException(status_code=400, detail="hf_dataset is required when source_type=huggingface.")
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown source_type: {source_type}")
+
+    job_dir = create_job_workspace(job_id, "datadoubler", dataset_name, config_dict)
+
+    if source_type == "local" and file and file.filename:
+        import_dir = os.path.join(job_dir, "import")
+        os.makedirs(import_dir, exist_ok=True)
+        with open(os.path.join(import_dir, file.filename), "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+    save_user_settings("datadoubler", {
+        "runs":           runs,
+        "allow_negative": bool(allow_negative),
+        "use_persona":    bool(use_persona),
+        "persona_name":   persona_name,
+    })
+
+    background_tasks.add_task(run_tool_subprocess, "datadoubler", job_id, config_dict)
+    return {"job_id": job_id, "status": "starting"}
+
 
 @app.get("/api/jobs/{job_id}")
 async def get_job_status(job_id: str):

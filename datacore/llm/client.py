@@ -1,9 +1,10 @@
 # datacore/llm/client.py
 
 import os
+import re
 import time
 import random
-from openai import OpenAI
+from openai import OpenAI, APITimeoutError, APIConnectionError
 import httpx
 from datacore.config.settings import config
 from typing import Optional, Dict, Any, Union
@@ -15,7 +16,10 @@ _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 def _is_retryable(exc: Exception) -> bool:
     """Return True for transient errors that should trigger a retry."""
     msg = str(exc).lower()
-    # httpx timeouts
+    # OpenAI SDK timeout / connection errors (raised when httpx times out under the hood)
+    if isinstance(exc, (APITimeoutError, APIConnectionError)):
+        return True
+    # httpx timeouts (in case they leak through directly)
     if isinstance(exc, (httpx.TimeoutException, httpx.ConnectError, httpx.RemoteProtocolError)):
         return True
     # OpenAI API errors carry a status_code attribute
@@ -50,10 +54,16 @@ class LLMClient:
         default_model: Optional[str] = None,
         default_temperature: float = 0.7,
         default_max_tokens: int = 6000,
-        timeout: float = 120.0,
-        max_retries: int = 3,
+        timeout: Optional[float] = None,
+        max_retries: Optional[int] = None,
         retry_base_delay: float = 1.0,
     ):
+        # Allow env overrides so users on slow/loaded machines can extend timeouts
+        # and retries without code changes.
+        if timeout is None:
+            timeout = float(os.getenv("LLM_TIMEOUT", "120"))
+        if max_retries is None:
+            max_retries = int(os.getenv("LLM_MAX_RETRIES", "3"))
         self.base_url = base_url if base_url is not None else config.LLM_BASE_URL
         self.api_key = api_key if api_key is not None else config.LLM_API_KEY
 
@@ -225,6 +235,21 @@ class LLMClient:
 
         msg = completion_obj.choices[0].message
         content = (msg.content or "").strip("\n")
+
+        # Some models expose thinking via <|channel>thought special tokens in content
+        # rather than <think> tags. Normalise to <think>...</think> so downstream
+        # include_reasoning logic works uniformly. If no closing tag (thinking hit
+        # max_tokens with no actual answer), the block becomes empty and falls through
+        # to reasoning_content below.
+        if "<|channel>" in content:
+            content = re.sub(
+                r"<\|channel\>thought([\s\S]*?)(?=<\|channel\>|$)",
+                lambda m: f"<think>{m.group(1).strip()}</think>\n" if m.group(1).strip() else "",
+                content,
+            )
+            content = re.sub(r"<\|channel\>[^\n]*\n?", "", content)
+            content = content.strip()
+
         # Thinking models (Qwen3, DeepSeek-R1) may return empty content with the
         # actual response inside reasoning_content when content is exhausted.
         if not content:

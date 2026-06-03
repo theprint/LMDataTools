@@ -232,11 +232,14 @@ def generate_perspectives(client, topics):
     return perspectives
 
 
-def generate_questions(client, topics, perspectives):
+def generate_questions(client, topics, perspectives, checkpoint_path=None, checkpoint_interval=250):
     """Generate questions from topics and perspectives."""
     questions = []
 
-    per_topic = min(10, len(DESCRIPTORS))
+    # Questions per (topic × perspective) scale with dataset size
+    size_to_count = {"small": 10, "medium": 25, "large": 50}
+    target_per_topic = size_to_count.get(DATASET_SIZE, 10)
+    per_topic = min(target_per_topic, len(DESCRIPTORS))
     total_expected = len(perspectives) * len(topics) * per_topic if perspectives and topics else 0
     reporter = ProgressReporter(total=max(1, total_expected), phase="Generating questions")
 
@@ -244,10 +247,10 @@ def generate_questions(client, topics, perspectives):
         print(f"\nGenerating questions from perspective: {asker}")
 
         for topic in topics:
-            ten_chosen = random.sample(DESCRIPTORS, min(10, len(DESCRIPTORS)))
-            print(f"  10 questions about {topic}:")
+            chosen = random.sample(DESCRIPTORS, per_topic)
+            print(f"  {per_topic} questions about {topic}:")
 
-            for descriptor in ten_chosen:
+            for descriptor in chosen:
                 pre_prompt = (
                     f"Your task is to create a straightforward question that a user might ask a large language model. "
                     f"Begin your question with one of: where, why, when, who, what, how or please - and with that in mind: "
@@ -275,6 +278,10 @@ def generate_questions(client, topics, perspectives):
                     questions.append(item)
                     reporter.update(len(questions))
                     print(f"    {len(questions)}: {question}")
+
+                    if checkpoint_path and checkpoint_interval > 0 and len(questions) % checkpoint_interval == 0:
+                        save_json(questions, checkpoint_path)
+                        print(f"  [checkpoint] Saved {len(questions)} questions.")
 
     reporter.done()
     return questions
@@ -364,9 +371,12 @@ def clean_questions(client, questions, min_score):
     return approved
 
 
-def generate_answers(client, questions, answer_style, step_call, use_persona, persona_name, include_reasoning=False):
+def generate_answers(client, questions, answer_style, step_call, use_persona, persona_name,
+                     include_reasoning=False, checkpoint_path=None, checkpoint_interval=250):
     """Generate answers for questions."""
-    print(f"\nGenerating answers for {len(questions)} questions...")
+    already_done = sum(1 for q in questions if q.get("answer"))
+    print(f"\nGenerating answers for {len(questions)} questions "
+          f"({already_done} already answered from checkpoint)...")
 
     if step_call:
         step_phrases = [
@@ -397,8 +407,13 @@ def generate_answers(client, questions, answer_style, step_call, use_persona, pe
         )
 
     reporter = ProgressReporter(total=len(questions), phase="Generating answers")
+    answered_count = already_done
 
     for i, item in enumerate(questions):
+        if item.get("answer"):
+            reporter.update(i + 1)
+            continue
+
         print(f"  Question {i+1}/{len(questions)}: {item['question'][:60]}...")
 
         prompt = item['question']
@@ -418,8 +433,13 @@ def generate_answers(client, questions, answer_style, step_call, use_persona, pe
             answer = re.sub(r'<think>.*?</think>', '', answer, flags=re.DOTALL).strip()
 
         item["answer"] = answer
+        answered_count += 1
         reporter.update(i + 1)
         print(f"    Answer: {answer[:60]}...")
+
+        if checkpoint_path and checkpoint_interval > 0 and answered_count % checkpoint_interval == 0:
+            save_json(questions, checkpoint_path)
+            print(f"  [checkpoint] Saved {answered_count} answers.")
 
     reporter.done()
     return questions
@@ -448,6 +468,7 @@ if __name__ == "__main__":
     print(f"Dataset: {DATASET_NAME}")
     print(f"Topics: {len(TOPICS)}")
     print(f"Output: {OUTPUT_PATH}")
+    print(f"Output format: {OUTPUT_FORMAT}")
     print("=" * 60)
     
     # Initialize LLM client
@@ -457,13 +478,18 @@ if __name__ == "__main__":
     )
     
     questions_file = os.path.join(OUTPUT_PATH, f"{DATASET_NAME}_questions_raw.json")
-    cleaned_file = os.path.join(OUTPUT_PATH, f"{DATASET_NAME}_questions_cleaned.json")
+    cleaned_file   = os.path.join(OUTPUT_PATH, f"{DATASET_NAME}_questions_cleaned.json")
+    answers_file   = os.path.join(OUTPUT_PATH, f"{DATASET_NAME}_answers_partial.json")
 
     # ── Resume checkpoints ────────────────────────────────────────────────────
     # If intermediate files already exist (from a prior interrupted run), skip
     # the expensive generation/evaluation steps and pick up where we left off.
 
-    if os.path.exists(cleaned_file):
+    if os.path.exists(answers_file):
+        print(f"\n[resume] Found partial answers: {answers_file}")
+        print("[resume] Skipping steps 1–3, resuming at step 4 (answer generation).")
+        cleaned_questions = load_json(answers_file)
+    elif os.path.exists(cleaned_file):
         print(f"\n[resume] Found existing cleaned questions: {cleaned_file}")
         print("[resume] Skipping steps 1–3, resuming at step 4 (answer generation).")
         cleaned_questions = load_json(cleaned_file)
@@ -493,7 +519,9 @@ if __name__ == "__main__":
         print("STEP 2: Generate Questions")
         print("=" * 60)
 
-        questions = generate_questions(client, TOPICS, perspectives)
+        questions = generate_questions(client, TOPICS, perspectives,
+                                      checkpoint_path=questions_file,
+                                      checkpoint_interval=SAVE_INTERVAL)
 
         if not questions:
             print("\n[ERROR] Step 2 produced no questions. Check your LLM connection and config.")
@@ -518,7 +546,8 @@ if __name__ == "__main__":
     print("STEP 4: Generate Answers")
     print("=" * 60)
     
-    answered_data = generate_answers(client, cleaned_questions, ANSWER_STYLE, STEP_CALL, USE_PERSONA, PERSONA_NAME, INCLUDE_REASONING)
+    answered_data = generate_answers(client, cleaned_questions, ANSWER_STYLE, STEP_CALL, USE_PERSONA, PERSONA_NAME, INCLUDE_REASONING,
+                                     checkpoint_path=answers_file, checkpoint_interval=SAVE_INTERVAL)
     
     # Step 5: Collate final dataset
     print("\n" + "=" * 60)
@@ -538,10 +567,9 @@ if __name__ == "__main__":
     save_json(data_to_save, final_file)
     
     # Clean up temporary files
-    if os.path.exists(questions_file):
-        os.remove(questions_file)
-    if os.path.exists(cleaned_file):
-        os.remove(cleaned_file)
+    for f in (questions_file, cleaned_file, answers_file):
+        if os.path.exists(f):
+            os.remove(f)
     
     # Emit token-usage summary so the webapp can persist it in job metadata.
     usage = client.get_usage_stats()
