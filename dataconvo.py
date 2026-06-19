@@ -10,6 +10,7 @@ from datacore.config.settings import config
 from datacore.config.loader import load_tool_config
 from datacore.progress import ProgressReporter
 from datacore.io.json_ops import save_json
+from datacore.io.formats import extract_first_turn
 from datacore.personas.loader import get_persona
 from datacore.personas.prompt_manager import inject_persona_into_prompt
 
@@ -111,19 +112,10 @@ def main():
             continue
         print(f"  Processing entry {i + 1} of {len(source_data)}...")
         
-        # Accept ShareGPT (conversations), Alpaca (instruction/output), or Q&A (question/answer) format
-        if "conversations" in entry:
-            turns = entry["conversations"]
-            human_turn = next((t for t in turns if t.get("from") == "human"), None)
-            gpt_turn = next((t for t in turns if t.get("from") in ("gpt", "assistant")), None)
-            initial_user_message = human_turn["value"] if human_turn else None
-            initial_assistant_message = gpt_turn["value"] if gpt_turn else None
-        else:
-            initial_user_message = entry.get("instruction") or entry.get("question")
-            initial_assistant_message = entry.get("output") or entry.get("answer")
+        initial_user_message, initial_assistant_message = extract_first_turn(entry)
 
         if not initial_user_message or not initial_assistant_message:
-            print(f"    - Skipping entry {i+1} due to missing 'instruction'/'question' or 'output'/'answer'.")
+            print(f"    - Skipping entry {i+1}: could not extract a user/assistant message pair.")
             continue
 
         conversation_history = [

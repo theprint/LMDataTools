@@ -31,7 +31,7 @@ import json
 
 _DEFAULT_PREFS: dict = {
     # Output format preferred by this user across tools
-    "preferred_output_format": "alpaca",   # "alpaca" | "sharegpt" | "qa"
+    "preferred_output_format": "alpaca",   # "alpaca" | "sharegpt" | "chatml" | "qa"
 
     # Persona applied by default when a tool supports USE_PERSONA
     "default_persona": "",

@@ -49,6 +49,9 @@ def main():
         # --- Helper to detect format ---
         def detect_format(entry):
             if "conversations" in entry and isinstance(entry["conversations"], list): return "sharegpt"
+            if "messages" in entry and isinstance(entry["messages"], list):
+                msgs = entry["messages"]
+                if msgs and "role" in msgs[0] and "content" in msgs[0]: return "chatml"
             if "instruction" in entry and "output" in entry: return "alpaca"
             if "question" in entry and "answer" in entry: return "qa"
             return "unknown"
@@ -56,7 +59,7 @@ def main():
         # --- Validation Step 1: Detect source format ---
         source_format = detect_format(data[0])
         if source_format == "unknown" or not source_format:
-            print(f"ERROR: The source file does not appear to be in a supported format (Alpaca, ShareGPT, or Q&A).", file=sys.stderr)
+            print(f"ERROR: The source file does not appear to be in a supported format (Alpaca, ShareGPT, ChatML, or Q&A).", file=sys.stderr)
             sys.exit(1)
 
         print(f"Detected source format: {source_format}")

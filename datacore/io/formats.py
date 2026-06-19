@@ -127,6 +127,53 @@ def from_alpaca(data: List[Dict[str, str]]) -> List[Dict[str, str]]:
     return qa_data
 
 
+def to_chatml(data: List[Dict[str, Any]],
+              instruction_key: str = "question",
+              output_key: str = "answer",
+              input_key: str = None,
+              system_prompt: str = None) -> List[Dict[str, Any]]:
+    """
+    Convert data to ChatML format (OpenAI messages schema).
+
+    Each entry becomes {"messages": [{"role": "...", "content": "..."}]}.
+    System messages are included when *system_prompt* is provided or when the
+    source entry already carries a system turn via the ShareGPT fast-path.
+    """
+    chatml_data = []
+    for entry in data:
+        # Fast path: full multi-turn conversation from a conversation-type source.
+        if "_conversations" in entry:
+            messages = []
+            for turn in entry["_conversations"]:
+                role_map = {"human": "user", "gpt": "assistant", "system": "system"}
+                role = role_map.get(turn.get("from", ""), turn.get("from", ""))
+                messages.append({"role": role, "content": turn.get("value", "")})
+            record = {"messages": messages}
+            for k, v in entry.items():
+                if k.startswith("_") and k != "_conversations":
+                    record[k] = v
+            chatml_data.append(record)
+            continue
+
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+
+        instruction = entry.get(instruction_key, "")
+        context     = entry.get(input_key, "") if input_key else ""
+        user_content = f"{instruction}\n\n{context}" if context else instruction
+        messages.append({"role": "user", "content": user_content})
+        messages.append({"role": "assistant", "content": entry.get(output_key, "")})
+
+        record = {"messages": messages}
+        for k, v in entry.items():
+            if k.startswith("_"):
+                record[k] = v
+        chatml_data.append(record)
+
+    return chatml_data
+
+
 def apply_output_format(
     data: List[Dict[str, Any]],
     output_format: str,
@@ -145,6 +192,11 @@ def apply_output_format(
         return (
             to_sharegpt(data, instruction_key=instruction_key, output_key=output_key, input_key=input_key),
             "sharegpt",
+        )
+    if output_format == "chatml":
+        return (
+            to_chatml(data, instruction_key=instruction_key, output_key=output_key, input_key=input_key),
+            "chatml",
         )
     if output_format == "qa":
         # Pass-through when source already uses question/answer keys; otherwise
@@ -170,28 +222,61 @@ def apply_output_format(
     )
 
 
+def extract_first_turn(entry: Dict[str, Any]) -> tuple:
+    """
+    Extract the first user/assistant message pair from an entry in any supported format.
+
+    Handles ShareGPT (conversations[].from/value), ChatML (messages[].role/content),
+    Alpaca (instruction/output), and Q&A (question/answer).
+
+    Returns:
+        (user_message, assistant_message) — either may be None if not found.
+    """
+    if "conversations" in entry:
+        turns = entry["conversations"]
+        human = next((t for t in turns if t.get("from") in ("human", "user")), None)
+        gpt   = next((t for t in turns if t.get("from") in ("gpt", "assistant")), None)
+        return (human["value"] if human else None), (gpt["value"] if gpt else None)
+
+    if "messages" in entry:
+        msgs     = entry["messages"]
+        user_msg = next((m for m in msgs if m.get("role") == "user"), None)
+        asst_msg = next((m for m in msgs if m.get("role") == "assistant"), None)
+        return (user_msg["content"] if user_msg else None), (asst_msg["content"] if asst_msg else None)
+
+    user      = entry.get("instruction") or entry.get("question")
+    assistant = entry.get("output") or entry.get("answer")
+    return user, assistant
+
+
 def detect_format(data: List[Dict[str, Any]]) -> str:
     """
     Detect the format of a dataset.
-    
+
     Returns:
-        Format name: "alpaca", "sharegpt", "qa", or "unknown"
+        Format name: "alpaca", "sharegpt", "chatml", "qa", or "unknown"
     """
     if not data:
         return "unknown"
-    
+
     first_entry = data[0]
-    
+
     # Check for Alpaca format
     if all(key in first_entry for key in ["instruction", "input", "output"]):
         return "alpaca"
-    
+
     # Check for ShareGPT format
-    if "conversations" in first_entry:
+    if "conversations" in first_entry and isinstance(first_entry["conversations"], list):
         return "sharegpt"
-    
+
+    # Check for ChatML format (OpenAI messages schema)
+    if "messages" in first_entry and isinstance(first_entry["messages"], list):
+        msgs = first_entry["messages"]
+        if msgs and "role" in msgs[0] and "content" in msgs[0]:
+            return "chatml"
+
     # Check for Q&A format
     if "question" in first_entry and "answer" in first_entry:
         return "qa"
-    
+
     return "unknown"

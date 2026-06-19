@@ -154,16 +154,17 @@ def save_checkpoint(
         metadata_path = output_path.replace('.json', '_metadata.json')
         save_json(metadata, metadata_path)
 
-SUPPORTED_FORMATS = Literal["alpaca", "sharegpt", "qa"]
+SUPPORTED_FORMATS = Literal["alpaca", "sharegpt", "chatml", "qa"]
 
 class DatasetFormatter:
     """
     A tool to reformat JSON datasets between supported formats.
-    
+
     Supported formats:
-    - 'alpaca': [{"instruction": str, "input": str, "output": str}]
+    - 'alpaca':   [{"instruction": str, "input": str, "output": str}]
     - 'sharegpt': [{"conversations": [{"from": "human"|"gpt", "value": str}]}]
-    - 'qa': [{"question": str, "answer": str}]
+    - 'chatml':   [{"messages": [{"role": "user"|"assistant"|"system", "content": str}]}]
+    - 'qa':       [{"question": str, "answer": str}]
     """
 
     def __init__(self, from_format: SUPPORTED_FORMATS, to_format: SUPPORTED_FORMATS):
@@ -255,6 +256,59 @@ class DatasetFormatter:
         # This conversion is lossy as ShareGPT can have multiple turns
         # We simplify to the first question and combined answers.
         return self._from_qa_to_alpaca(qa_entry)
+
+    # ── ChatML conversions ─────────────────────────────────────────────────
+
+    def _from_qa_to_chatml(self, entry: Dict) -> Dict:
+        """Converts a single QA pair to a ChatML messages list."""
+        return {
+            "messages": [
+                {"role": "user",      "content": entry.get("question", "")},
+                {"role": "assistant", "content": entry.get("answer",   "")},
+            ]
+        }
+
+    def _from_chatml_to_qa(self, entry: Dict) -> Dict:
+        """Converts a ChatML entry to a QA pair (first user/assistant turns)."""
+        question = ""
+        answer   = ""
+        for msg in entry.get("messages", []):
+            role = msg.get("role", "")
+            if role == "user" and not question:
+                question = msg.get("content", "")
+            elif role == "assistant" and not answer:
+                answer = msg.get("content", "")
+        return {"question": question, "answer": answer}
+
+    def _from_alpaca_to_chatml(self, entry: Dict) -> Dict:
+        """Converts an Alpaca entry to ChatML format."""
+        qa_entry = self._from_alpaca_to_qa(entry)
+        return self._from_qa_to_chatml(qa_entry)
+
+    def _from_chatml_to_alpaca(self, entry: Dict) -> Dict:
+        """Converts a ChatML entry to Alpaca format (first user/assistant turns)."""
+        qa_entry = self._from_chatml_to_qa(entry)
+        return self._from_qa_to_alpaca(qa_entry)
+
+    def _from_sharegpt_to_chatml(self, entry: Dict) -> Dict:
+        """Converts a ShareGPT conversation to ChatML format, preserving all turns."""
+        role_map = {"human": "user", "gpt": "assistant", "system": "system"}
+        messages = [
+            {"role": role_map.get(turn.get("from", ""), turn.get("from", "")),
+             "content": turn.get("value", "")}
+            for turn in entry.get("conversations", [])
+        ]
+        return {"messages": messages}
+
+    def _from_chatml_to_sharegpt(self, entry: Dict) -> Dict:
+        """Converts a ChatML messages list to ShareGPT conversation format."""
+        role_map = {"user": "human", "assistant": "gpt", "system": "system"}
+        conversations = [
+            {"from": role_map.get(msg.get("role", ""), msg.get("role", "")),
+             "value": msg.get("content", "")}
+            for msg in entry.get("messages", [])
+        ]
+        return {"conversations": conversations}
 
 
 class ResumableProcessor:

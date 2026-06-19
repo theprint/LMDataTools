@@ -81,6 +81,11 @@ def extract_qa(entry, fmt):
         q = next((m.get("value", "") for m in convs if m.get("from") in ("user", "human")), "")
         a = next((m.get("value", "") for m in convs if m.get("from") in ("assistant", "gpt")), "")
         return q, a
+    if fmt == "chatml":
+        msgs = entry.get("messages", [])
+        q = next((m.get("content", "") for m in msgs if m.get("role") == "user"), "")
+        a = next((m.get("content", "") for m in msgs if m.get("role") == "assistant"), "")
+        return q, a
     # Best-effort fallback
     for qk, ak in (("question", "answer"), ("instruction", "output"), ("prompt", "response")):
         if qk in entry and ak in entry:

@@ -845,6 +845,7 @@ let currentTool = null;
                             <select id="target_format">
                                 <option value="alpaca">Alpaca</option>
                                 <option value="sharegpt">ShareGPT</option>
+                                <option value="chatml">ChatML</option>
                                 <option value="qa">Q&A (question/answer)</option>
                             </select>
                         </div>

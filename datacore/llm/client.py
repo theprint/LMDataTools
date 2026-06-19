@@ -13,6 +13,13 @@ from typing import Optional, Dict, Any, Union
 # Errors that are worth retrying (transient / recoverable)
 _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
+
+class LLMAPIError(ValueError):
+    """Raised when the API returns an error payload instead of a valid completion."""
+    def __init__(self, message: str, status_code: Optional[int] = None):
+        super().__init__(message)
+        self.status_code = status_code
+
 def _is_retryable(exc: Exception) -> bool:
     """Return True for transient errors that should trigger a retry."""
     msg = str(exc).lower()
@@ -231,7 +238,9 @@ class LLMClient:
         """Execute a single non-streaming API call and update usage counters."""
         completion_obj = self.client.chat.completions.create(**kwargs)
         if completion_obj is None or not completion_obj.choices:
-            raise ValueError(f"Invalid response from LLM API: {completion_obj}")
+            error = getattr(completion_obj, "error", None) if completion_obj is not None else None
+            status_code = error.get("code") if isinstance(error, dict) else None
+            raise LLMAPIError(f"Invalid response from LLM API: {completion_obj}", status_code=status_code)
 
         msg = completion_obj.choices[0].message
         content = (msg.content or "").strip("\n")
